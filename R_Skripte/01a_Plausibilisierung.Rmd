@@ -26,6 +26,7 @@ convert_curr<- function(x){
 }
 ```
 
+
 # 2019
 ```{r data_load_2019, warning=FALSE}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
@@ -595,6 +596,577 @@ test12b <- test12a %>%
 
 #write.xlsx(test12b, file = "kt_apn.xlsx")
 ```
+
+
+# 2021
+```{r data_load_2021, warning=FALSE}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
+
+load("stamm01.Rda")
+# load("tg02.Rda")
+load("vz03.Rda")
+load("vzpg04.Rda")
+load("pl05.Rda")
+load("plart06.Rda")
+load("pg07.Rda")
+load("hkp08.Rda")
+load("hkpgop09.Rda")
+load("sgbv10.Rda")
+load("kh11.Rda")
+load("kht12.Rda")
+```
+
+```{r stamm_2021}
+dlookr::diagnose(stamm01)
+
+stamm01$V_ALTER <- as.character(stamm01$V_ALTER)
+stamm01$V_STERBEDATUM[stamm01$V_STERBEDATUM==""] <- NA
+stamm01$V_STERBEDATUM <- ymd(stamm01$V_STERBEDATUM)
+
+#Altersverteilung
+ggplot(data = stamm01) +
+  geom_bar(mapping = aes(x = V_ALTER ))
+
+#Sterbedatum
+ggplot(stamm01, aes(x=V_STERBEDATUM)) +  
+  theme_bw() +  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") 
+```
+FAZIT: Altersverteilung plausibel
+
+
+```{r vz_2021}
+dlookr::diagnose(vz03)
+
+vz03$V_VZ_VON <- ymd(vz03$V_VZ_VON)
+vz03$V_VZ_BIS <- ymd(vz03$V_VZ_BIS)
+
+#Versicherungsbeginn
+ggplot(vz03, aes(x=V_VZ_VON)) +  
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) + 
+  scale_x_date(date_breaks = "months") +
+  theme_bw()
+
+#Versicherungsende
+ggplot(vz03, aes(x=V_VZ_BIS)) +  
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") +
+  theme_bw() 
+
+# Versicherungsdauer
+vz03 <- vz03 %>% 
+  dplyr::mutate(versdauer = as.double(V_VZ_BIS - V_VZ_VON)) 
+
+vz03 %>% ggplot(aes(versdauer)) + geom_histogram(binwidth = 5)
+
+# kumulative Versicherungsdauer
+vz03a <- vz03 %>%
+  group_by(V_ID) %>%
+  summarise(n = n_distinct(V_VZ_VON),
+            TOTAL = sum(versdauer))
+
+vz03a %>% ggplot( aes(TOTAL)) +geom_histogram(binwidth = 5)
+
+
+# vollen Datensatz mit Todesdatum verbinden
+vz03b <- left_join(vz03, stamm01, by=("V_ID"))
+vz03b <- vz03b %>% 
+  plyr::mutate(dauerbistod = as.double(V_STERBEDATUM- V_VZ_BIS)) %>% 
+  filter(dauerbistod==0)
+
+# aggregierten Datensatz mit Todesdatum verbinden
+vz03d <- left_join(vz03a, stamm01, by=("V_ID"))
+str(vz03d)
+
+#Versicherungsbeginn adden
+help1 <- vz03 %>% group_by(V_ID) %>% summarise(erster_beginn=min(V_VZ_VON))
+vz03d <- left_join(vz03d, help1, by=("V_ID"))
+vz03d<- vz03d %>% 
+  mutate(
+    dauerbistod = as.double(V_STERBEDATUM- erster_beginn), 
+    diff_totaltod=dauerbistod-TOTAL, 
+    n_diff_totaltod=diff_totaltod-n+1, 
+    n_TOTAL=TOTAL+n # n wegen Überschneidungen als Korrektur
+  ) 
+
+
+# Filter nach Tod in jahr 1 und 2 mit voller Versicherungszeit und voller Versicherungszeit
+# erfüllen Kriterien
+check1 <- vz03d %>% filter(is.na(V_STERBEDATUM) & n_TOTAL> 361)
+check2 <- vz03d %>% filter(n_diff_totaltod < 8)
+
+#Überschneidung check 1 und 2
+check <- bind_rows(check1,check2)
+dlookr::diagnose(check)
+
+#erfüllen Kriterien nicht
+check3 <- vz03d %>% filter(is.na(V_STERBEDATUM)& n_TOTAL < 362)
+check4 <- vz03d %>% filter(n_diff_totaltod > 7)
+```
+
+
+```{r vzpg_2021}
+dlookr::diagnose(vzpg04)
+
+vzpg04$V_PG_VON <- ymd(vzpg04$V_PG_VON)
+vzpg04$V_PG_BIS <- ymd(vzpg04$V_PG_BIS)
+
+#ID eines Zeitraums
+ggplot(data = vzpg04) +
+  geom_bar(mapping = aes(x = V_ID_PG))
+
+#Pflegegrad
+ggplot(data = vzpg04) +
+  geom_bar(mapping = aes(x = V_PFLEGEGRAD))
+
+#Pflegegrad von
+ggplot(vzpg04, aes(x=V_PG_VON)) +  
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") +  
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") +
+  theme_bw()
+
+#Pflegegrad bis
+vzpg04$V_PG_BIS[vzpg04$V_PG_BIS>"2021-12-31"] <- as.Date("2021-12-31")
+vzpg04$V_PG_VON[vzpg04$V_PG_VON<"2021-01-01"] <- as.Date("2021-01-01")
+
+ggplot(vzpg04, aes(x=V_PG_BIS))  +  
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") +
+  theme_bw()
+```
+
+
+
+```{r pl_2021}
+dlookr::diagnose(pl05)
+
+pl05$PL_DATUM  <- ymd(pl05$PL_DATUM)
+pl05$PSEUDO_PL_IK_LE <- as.character(pl05$PSEUDO_PL_IK_LE)
+pl05$PSEUDO_PL_IK_RE <- as.character(pl05$PSEUDO_PL_IK_RE)
+
+# Abrechnungen aus HR vorhanden?
+tmp <- pl05 %>% filter(PSEUDO_PL_IK_LE %in% c(920943503, 1020943321))
+nrow(tmp)
+length(unique(tmp$V_ID))
+# 1.042 Abrechnungen von 31 Personen
+
+# Rechnungsdatum
+ggplot(pl05, aes(x=PL_DATUM)) +
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") +
+  theme_bw()
+# starke Häufung am Anfang des Monats: logisch
+ 
+# Gesamtkosten inkl. Zuzahlung
+ggplot(pl05, aes(PL_GESKOSTEN)) +
+  geom_histogram(binwidth = 100)
+# zum Teil sehr hohe (negative Beträge)
+
+pl05a <- pl05%>%  filter(PL_GESKOSTEN > 0 &PL_GESKOSTEN < 10000)
+ggplot(pl05a, aes(PL_GESKOSTEN)) +
+  geom_histogram(binwidth = 100)
+
+#Gesamtkosten ohne Zuzahlung
+pl05b <- pl05%>%  filter(PL_REBETRAG > 0 &PL_REBETRAG < 10000)
+ggplot(pl05b, aes(PL_REBETRAG)) +
+  geom_histogram(binwidth = 100)
+
+table(pl05$PL_EIGENANTEIL,useNA="always")
+table(pl05$PL_BETRAGHR,useNA="always")
+
+# Differenz zwischen Gesamtkosten und erstattetem Betrag:
+pl05 <- pl05 %>% mutate(Kosten_diff=PL_GESKOSTEN- PL_REBETRAG )
+
+ggplot(pl05, aes(Kosten_diff)) +
+  geom_histogram(binwidth = 100)
+
+pl05c <- pl05 %>% filter(Kosten_diff>0)
+ggplot(pl05c, aes(Kosten_diff)) +
+  geom_histogram(binwidth = 100)
+
+# negative Kosten
+pl05c1 <- pl05 %>% filter(PL_GESKOSTEN<0)
+
+#auf Personenebene
+pl05d <- pl05 %>%
+  group_by(V_ID) %>%
+  summarise(TOTAL = sum(Kosten_diff)  )
+
+pl05e <- pl05d %>% filter(TOTAL>0)
+ggplot(pl05e, aes(TOTAL)) +
+  geom_histogram(binwidth = 100)
+
+pl05f <- pl05d %>% filter(TOTAL>1000)
+```
+IK Leistungserbringer: 30 % missing
+IK Rechnungsersteller: 34 % missing
+Gesamtkosten (ohne und mit Zuzahlung) ca. 1% negative Werte
+PL_Eigenanteil und BetragHR ohne Ausprägungen
+
+
+```{r plart_2021}
+dlookr::diagnose(plart06)
+
+plart06$PL_LEISTUNGSART2 <- as.numeric(plart06$PL_LEISTUNGSART)
+
+# Leistungsart
+table(plart06$PL_LEISTUNGSART,useNA="always")
+ggplot(data = plart06) +
+geom_bar(mapping = aes(x = PL_LEISTUNGSART))+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Abrechnungen aus HR
+tmp <- pl05 %>% filter(PSEUDO_PL_IK_LE %in% c(920943503, 1020943321))
+tmp2 <- plart06 %>% filter(PL_RENR %in% tmp$PL_RENR) 
+table(tmp2$PL_LEISTUNGSART)
+```
+
+Indikatoren für einzelne TGs
+```{r}
+# TG1 Haus Rheinaue
+plart06a <- plart06 %>%  filter(PL_LEISTUNGSART2==999)
+pl05merge <- pl05 %>% dplyr::select(V_ID, PL_RENR, PL_DATUM)
+
+plart06b <- left_join(plart06a, pl05merge, by=c("V_ID","PL_RENR"))
+plart06b1<- plart06b %>%  
+  group_by(V_ID) %>% 
+  summarise(n = n_distinct(PL_DATUM))
+
+
+# TG2 ambulant betreute Wohngruppe
+plart06c <- plart06 %>%  filter(PL_LEISTUNGSART2==12)
+
+plart06d <- left_join(plart06c,pl05merge, by=c("V_ID","PL_RENR"))
+plart06d1<- plart06d %>%  
+  group_by(V_ID) %>% 
+  summarise(n = n_distinct(PL_DATUM))
+
+
+# TG3 vollstationäre Pflegeeinrichtungen
+plart06e <- plart06 %>%  filter(PL_LEISTUNGSART2==05)
+
+plart06f <- left_join(plart06e,pl05merge, by=c("V_ID","PL_RENR")) 
+plart06f1<- plart06f %>% 
+  group_by(V_ID) %>% 
+  summarise(n = n_distinct(PL_DATUM))
+
+
+### Probe bzgl. widersprüchlicher Indikatoren
+# was passiert hier?
+
+# TG1 und TG2
+check1a_id <- plart06b1  %>% 
+  left_join(plart06d1 %>% transmute(V_ID,  check = 'yes')) %>% 
+  replace_na(list(check = 'no'))
+table(check1a_id$check)
+
+check1a_tag <- plart06b %>% 
+  left_join(plart06d %>% transmute(V_ID, PL_DATUM, check = 'yes')) %>%
+  replace_na(list(check = 'no'))
+table(check1a_tag$check)
+
+check1b_id <- plart06d1  %>% 
+  left_join(plart06b1 %>% transmute(V_ID,  check = 'yes')) %>%
+  replace_na(list(check = 'no'))
+table(check1b_id$check)
+
+check1b_tag <- plart06d %>% 
+  left_join(plart06b %>% transmute(V_ID, PL_DATUM, check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check1b_tag$check)
+
+
+# TG1 und TG3
+check2a_id <- plart06b1  %>% 
+  left_join(plart06f1 %>% transmute(V_ID,  check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check2a_id$check)
+
+check2a_tag <- plart06b %>% 
+  left_join(plart06f %>% transmute(V_ID, PL_DATUM, check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check2a_tag$check)
+
+check2b_id <- plart06f1  %>% 
+  left_join(plart06b1 %>% transmute(V_ID,  check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check2b_id$check)
+
+check2b_tag <- plart06f %>% 
+  left_join(plart06b %>% transmute(V_ID, PL_DATUM, check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check2b_tag$check)
+
+# TG2 und TG3
+check3a_id <- plart06d1  %>% 
+  left_join(plart06f1 %>% transmute(V_ID,  check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check3a_id$check)
+
+check3a_tag <- plart06d %>% 
+  left_join(plart06f %>% transmute(V_ID, PL_DATUM, check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check3a_tag$check)
+
+check3b_id <- plart06f1  %>% 
+  left_join(plart06d1 %>% transmute(V_ID,  check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check3b_id$check)
+
+check3b_tag <- plart06f %>% 
+  left_join(plart06d %>% transmute(V_ID, PL_DATUM, check = 'yes'))%>%
+  replace_na(list(check = 'no'))
+table(check3b_tag$check)
+```
+Keine klare Implausibilität
+TG1 <- 20 IDs mit Indikator
+TG2 <- 779 IDs mit Indikator
+TG3 <-  5356 IDs mit Indikator
+
+
+```{r pg07}
+dlookr::diagnose(pg07)
+
+pg07$LEISTUNG_VON <- ymd(pg07$LEISTUNG_VON)
+pg07$LEISTUNG_BIS <- ymd(pg07$LEISTUNG_BIS)
+
+table(pg07$GEBPOS)
+
+# Leistungsbeginn
+ggplot(pg07, aes(x=LEISTUNG_VON)) +  
+  theme_bw() +  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") 
+
+#Leistungsende
+ggplot(pg07, aes(x=LEISTUNG_BIS)) +  
+  theme_bw() +  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") 
+
+#Leistungsdauer
+pg07 <- pg07 %>% 
+  dplyr::mutate(leistungsdauer= as.double(LEISTUNG_BIS - LEISTUNG_VON))
+
+ggplot(pg07, aes(leistungsdauer)) +
+  geom_histogram(binwidth = 1)
+table(pg07$leistungsdauer)
+
+ggplot(pg07, aes(ZAHLBETRAG)) +
+  geom_histogram(binwidth = 100)
+
+pg07a <- pg07%>%  filter(ZAHLBETRAG>0 )
+ggplot(pg07a, aes(ZAHLBETRAG )) +
+  geom_histogram(binwidth = 100)
+```
+GEBPOS_KURZ_NEU:  Ausprägungen: 01, Geld
+Leistungsdauer in der Regel 0 oder 30 Tage
+Pflegegeld: ca. 1% der Kosten negativ
+
+```{r hkp08}
+dlookr::diagnose(hkp08)
+
+hkp08$PSEUDO_HKP_IK_LE <- as.character(hkp08$PSEUDO_HKP_IK_LE)
+hkp08$PSEUDO_HKP_IK_RE <- as.character(hkp08$PSEUDO_HKP_IK_RE)
+
+# Leistungsdatum
+hkp08$HKP_DATUM  <- ymd(hkp08$HKP_DATUM)
+
+ggplot(hkp08, aes(x=HKP_DATUM))  +  
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") +  
+  theme_bw()
+
+# #IK Leistungserbringer
+# table(hkp08$PSEUDO_HKP_IK_LE)
+# #IK Rechnungsersteller
+# table(hkp08$PSEUDO_HKP_IK_RE)
+
+ggplot(hkp08, aes(HKP_GESKOSTEN)) +
+  geom_histogram(binwidth = 100)
+
+hkp08a <- hkp08 %>% filter(HKP_GESKOSTEN < 1000 & HKP_GESKOSTEN >= 0)
+ggplot(hkp08a, aes(HKP_GESKOSTEN)) +
+  geom_histogram(binwidth = 100)
+```
+Leistungsdatum, IKs und Pflegegeld wirken plausibel
+
+```{r hkpgop_2021}
+dlookr::diagnose(hkpgop09)
+
+hkpgop09$HKP_GOP <- as.character(hkpgop09$HKP_GOP )
+
+# abgerechnete GOP
+ggplot(data = hkpgop09) +
+  geom_bar(mapping = aes(x = HKP_GOP))+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+# Anzahl der abgerecheneten GOP
+# ggplot(hkpgop09, aes(HKP_GOP_N )) +
+#   geom_histogram(binwidth = 1)
+
+#Anzahl der GOP pro GOP
+# hkpgop09 %>% ggplot( mapping = aes(x = HKP_GOP_N , y = HKP_GOP)) +
+#   geom_boxplot()# + facet_grid(leits ~ .)+ scale_fill_manual(values = mycols) +theme(strip.text.y = element_text(angle # = 0))
+```
+IDs:1535 IDs mit Daten
+keine klaren Implausibilitäten
+
+SGB V Hilfsmittel
+```{r sgbv_2021}
+dlookr::diagnose(sgbv10)
+
+# Leistungsdatum
+sgbv10$HM_DATUM <- ymd(sgbv10$HM_DATUM)
+
+ggplot(sgbv10, aes(x=HM_DATUM)) +  
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") +
+  theme_bw()
+
+# Gesamtkosten
+ggplot(sgbv10, aes(HM_GESKOSTEN)) +
+  geom_histogram(binwidth = 100)
+
+#Zuzahlung
+ggplot(sgbv10, aes(HM_ZUZAHLUNG)) +
+  geom_histogram(binwidth = 5)
+
+#Eigenanteil 
+ggplot(sgbv10, aes(HM_EIGENANTEIL)) +
+  geom_histogram(binwidth = 5)
+
+#Mehrkosten
+ggplot(sgbv10, aes(HM_MEHRKOSTEN)) +
+  geom_histogram(binwidth = 50)
+
+table(sgbv10$HM_MEHRKOSTEN)
+```
+Datum wirkt plausibel
+Zuzahlung, Eigenanteil, Mehrkosten: wirken plausibel
+
+stationäre Falldaten 
+```{r kh_2021}
+dlookr::diagnose(kh11)
+
+kh11$KH_AUF_ANLASS <- as.character(kh11$KH_AUF_ANLASS)
+
+# Anzahl der Aufnahmen pro Person
+kh11a <- kh11%>%
+  group_by(V_ID) %>%
+  summarise(n = n_distinct(KH_FALLNR))
+
+ggplot(kh11a , aes(n)) +
+  geom_histogram(binwidth = 1)
+
+# KH-Beginn
+kh11$KH_BEGINN_DAT <-  ymd(kh11$KH_BEGINN_DAT)
+
+ggplot(kh11, aes(x=KH_BEGINN_DAT)) + 
+  theme_bw() + 
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") 
+
+# KH-Ende
+kh11$KH_ENDE_DAT <-  ymd(kh11$KH_ENDE_DAT)
+
+ggplot(kh11, aes(x=KH_ENDE_DAT)) +
+  theme_bw() + 
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") + 
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") 
+
+
+# Liegezeit
+kh11 <- kh11%>% dplyr::mutate(liegezeit = as.double(KH_ENDE_DAT - KH_BEGINN_DAT))
+kh11 %>% ggplot( aes(liegezeit)) +
+  geom_histogram(binwidth = 5)
+
+#unplausible/fehlende Entlassung entfernen
+kh11a <- kh11 %>% filter(liegezeit<2000)
+kh11a <- kh11a %>% filter(KH_KOSTEN<25000)
+
+# Kosten
+kh11a %>% ggplot( aes(KH_KOSTEN)) +geom_histogram(binwidth = 100)
+
+
+# Scatter Liegezeit-Kosten
+attach(kh11a)
+plot(liegezeit, KH_KOSTEN, main="Liegezeit vs Kosten",
+     xlab="Liegezeit in d ", ylab="Kosten in €", pch=19)
+
+# Aufnahmeanlass
+ggplot(data = kh11a) +
+  geom_bar(mapping = aes(x = KH_AUF_ANLASS))
+```
+Anzahl, Beginn, Ende, Kosten: plausibel
+Aufnahmeanlass: nun plausibel
+
+```{r kht_2021}
+dlookr::diagnose(kht12)
+
+# Abrechnungsnummer
+kht12$KT_APN <- as.character(kht12$KT_APN)
+
+ggplot(data = kht12) +
+  geom_bar(mapping = aes(x = KT_APN))
+
+table(kht12$KT_APN)
+
+
+# Leistungsdatum
+kht12$KT_DATUM  <- ymd(kht12$KT_DATUM)
+
+ggplot(kht12, aes(x=KT_DATUM )) +  
+  theme_bw() + 
+  geom_histogram(binwidth=7, fill="darkblue",color="black") +
+  labs(x="Date", y="Cases") +
+  theme(axis.text.x=element_text(angle=60, hjust=1)) +
+  scale_x_date(date_breaks = "months") 
+
+# Transportkosten
+ggplot(kht12, aes(KT_KOSTEN)) +geom_histogram(binwidth = 10)
+
+# outlier ansehen
+test12 <- kht12 %>%  filter(KT_KOSTEN>2000)
+
+# auf bestimmte Transporte fokussieren
+kht12$transport <- substr(kht12$KT_APN, 0, 1)
+table(kht12$transport)
+
+# Notarzt, NEF und Rettungswagen (https://www.rettungsdienst.brk.de/rettungsdienst/wissenswertes/wer-kommt-wann.html)
+test12a <- kht12 %>% 
+  filter(transport==1 |transport==2 |transport==3)
+#sum(duplicated(test12a )) 
+
+# am teuersten Intensivtransporte (170103), anschließend
+test12b <- test12a %>%  
+  group_by(KT_APN) %>% summarise(n=n(), mean_cost=mean(KT_KOSTEN))
+
+#write.xlsx(test12b, file = "kt_apn.xlsx")
+```
+
+
 
 
 
