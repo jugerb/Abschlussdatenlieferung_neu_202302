@@ -1,0 +1,632 @@
+---
+title: "Data Link"
+output: html
+---
+Skript überprüft, ob gelieferte Tabellen verknüpfbar sind 
+
+```{r setup, include=FALSE}
+library(tidyverse) 
+library(lubridate)
+library(psych)
+library(dlookr)
+library(openxlsx)
+library (validate)
+library(epiDisplay)
+```
+
+# 2019 Verlinkung prüfen ---------
+```{r data_load_2019}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+
+load('stamm01.rda')
+# load('tg02.rda') # fehlt noch
+load('vz03.rda')
+load('vzpg04.rda')
+load('pl05.rda')
+load('plart06.rda')
+load('pg07.rda')
+load('hkp08.rda')
+load('hkpgop09.rda')
+load('sgbv10.rda')
+load('kh11.rda')
+load('kht12.rda')
+```
+
+```{r}
+## Table 01 zu Table 02
+# rows <- which(str_trim(stamm01[["V_ID"]]) %in% tg02[["V_ID"]])
+# selected_rows_df_211 <- stamm01[rows,]
+# perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+# print(perc)
+# 
+# # Table 02 zu Table 01
+# rows <- which(str_trim(tg02[["V_ID"]]) %in% stamm01[["V_ID"]])
+# selected_rows_df_212 <- tg02[rows,]
+# perc <- round((nrow(selected_rows_df_212)/nrow(tg02))*100,2)
+# print(perc)
+```
+
+```{r}
+## Table 01 zu Table 03
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% vz03[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 03 zu Table 01
+rows <- which(str_trim(vz03[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- vz03[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(vz03))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 04
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% vzpg04[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 04 zu Table 01
+rows <- which(str_trim(vzpg04[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- vzpg04[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(vzpg04))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 05
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% pl05[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# nicht allePersonen erhalten Pflegesachleistungen
+
+## Table 05 zu Table 01
+rows <- which(str_trim(pl05[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- pl05[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(pl05))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 06
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% plart06[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+## Table 06 zu Table 01
+rows <- which(str_trim(plart06[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- plart06[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(plart06))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 07
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% pg07[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# knapp über 70% erhalten Pflegegeld
+
+# Table 07 zu Table 01
+rows <- which(str_trim(pg07[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- pg07[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(pg07))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 08
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% hkp08[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# etwa ein Viertel erhält Leistungen der HKP
+
+# Table 08 zu Table 01
+rows <- which(str_trim(hkp08[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- hkp08[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkp08))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 09
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% hkpgop09[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# für die wenigsten liegen GOPS vor 
+
+# Table 09 zu Table 01
+rows <- which(str_trim(hkpgop09[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- hkpgop09[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkpgop09))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 10
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% sgbv10[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 10 zu Table 01
+rows <- which(str_trim(sgbv10[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- sgbv10[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(sgbv10))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 11
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% kh11[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 11 zu Table 01
+rows <- which(str_trim(kh11[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- kh11[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(kh11))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 12
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% kht12[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 12 zu Table 01
+rows <- which(str_trim(kht12[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- kht12[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(kht12))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 05 zu Table 06, PL_RENR
+rows <- which(str_trim(pl05[["PL_RENR"]]) %in% plart06[["PL_RENR"]])
+selected_rows_df_211 <- pl05[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(pl05))*100,2)
+print(perc)
+
+# Table 06 zu Table 05, PL_RENR
+rows <- which(str_trim(plart06[["PL_RENR"]]) %in% pl05[["PL_RENR"]])
+selected_rows_df_212 <- plart06[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(plart06))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 08 zu Table 09, HKP_FALLNR
+rows <- which(str_trim(hkp08[["HKP_FALLNR"]]) %in% hkpgop09[["HKP_FALLNR"]])
+selected_rows_df_211 <- hkp08[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(hkp08))*100,2)
+print(perc)
+
+# Table 09 zu Table 08, HKP_FALLNR
+rows <- which(str_trim(hkpgop09[["HKP_FALLNR"]]) %in% hkp08[["HKP_FALLNR"]])
+selected_rows_df_212 <- hkpgop09[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkpgop09))*100,2)
+print(perc)
+```
+
+
+# 2020 Verlinkung prüfen ---------
+```{r data_load_2020}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
+
+load('stamm01.rda')
+# load('tg02.rda') # fehlt noch
+load('vz03.rda')
+load('vzpg04.rda')
+load('pl05.rda')
+load('plart06.rda')
+load('pg07.rda')
+load('hkp08.rda')
+load('hkpgop09.rda')
+load('sgbv10.rda')
+load('kh11.rda')
+load('kht12.rda')
+```
+
+```{r}
+## Table 01 zu Table 02
+# rows <- which(str_trim(stamm01[["V_ID"]]) %in% tg02[["V_ID"]])
+# selected_rows_df_211 <- stamm01[rows,]
+# perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+# print(perc)
+# 
+# # Table 02 zu Table 01
+# rows <- which(str_trim(tg02[["V_ID"]]) %in% stamm01[["V_ID"]])
+# selected_rows_df_212 <- tg02[rows,]
+# perc <- round((nrow(selected_rows_df_212)/nrow(tg02))*100,2)
+# print(perc)
+```
+
+```{r}
+## Table 01 zu Table 03
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% vz03[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 03 zu Table 01
+rows <- which(str_trim(vz03[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- vz03[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(vz03))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 04
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% vzpg04[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 04 zu Table 01
+rows <- which(str_trim(vzpg04[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- vzpg04[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(vzpg04))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 05
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% pl05[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# nicht allePersonen erhalten Pflegesachleistungen
+
+## Table 05 zu Table 01
+rows <- which(str_trim(pl05[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- pl05[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(pl05))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 06
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% plart06[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+## Table 06 zu Table 01
+rows <- which(str_trim(plart06[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- plart06[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(plart06))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 07
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% pg07[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# knapp über 70% erhalten Pflegegeld
+
+# Table 07 zu Table 01
+rows <- which(str_trim(pg07[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- pg07[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(pg07))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 08
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% hkp08[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# etwa ein Viertel erhält Leistungen der HKP
+
+# Table 08 zu Table 01
+rows <- which(str_trim(hkp08[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- hkp08[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkp08))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 09
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% hkpgop09[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# für die wenigsten liegen GOPS vor 
+
+# Table 09 zu Table 01
+rows <- which(str_trim(hkpgop09[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- hkpgop09[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkpgop09))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 10
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% sgbv10[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 10 zu Table 01
+rows <- which(str_trim(sgbv10[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- sgbv10[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(sgbv10))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 11
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% kh11[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 11 zu Table 01
+rows <- which(str_trim(kh11[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- kh11[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(kh11))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 12
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% kht12[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 12 zu Table 01
+rows <- which(str_trim(kht12[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- kht12[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(kht12))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 05 zu Table 06, PL_RENR
+rows <- which(str_trim(pl05[["PL_RENR"]]) %in% plart06[["PL_RENR"]])
+selected_rows_df_211 <- pl05[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(pl05))*100,2)
+print(perc)
+
+# Table 06 zu Table 05, PL_RENR
+rows <- which(str_trim(plart06[["PL_RENR"]]) %in% pl05[["PL_RENR"]])
+selected_rows_df_212 <- plart06[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(plart06))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 08 zu Table 09, HKP_FALLNR
+rows <- which(str_trim(hkp08[["HKP_FALLNR"]]) %in% hkpgop09[["HKP_FALLNR"]])
+selected_rows_df_211 <- hkp08[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(hkp08))*100,2)
+print(perc)
+
+# Table 09 zu Table 08, HKP_FALLNR
+rows <- which(str_trim(hkpgop09[["HKP_FALLNR"]]) %in% hkp08[["HKP_FALLNR"]])
+selected_rows_df_212 <- hkpgop09[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkpgop09))*100,2)
+print(perc)
+```
+
+
+# 2021 Verlinkung prüfen ---------
+```{r data_load_2021}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
+
+load('stamm01.rda')
+# load('tg02.rda') # fehlt noch
+load('vz03.rda')
+load('vzpg04.rda')
+load('pl05.rda')
+load('plart06.rda')
+load('pg07.rda')
+load('hkp08.rda')
+load('hkpgop09.rda')
+load('sgbv10.rda')
+load('kh11.rda')
+load('kht12.rda')
+```
+
+```{r}
+## Table 01 zu Table 02
+# rows <- which(str_trim(stamm01[["V_ID"]]) %in% tg02[["V_ID"]])
+# selected_rows_df_211 <- stamm01[rows,]
+# perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+# print(perc)
+# 
+# # Table 02 zu Table 01
+# rows <- which(str_trim(tg02[["V_ID"]]) %in% stamm01[["V_ID"]])
+# selected_rows_df_212 <- tg02[rows,]
+# perc <- round((nrow(selected_rows_df_212)/nrow(tg02))*100,2)
+# print(perc)
+```
+
+```{r}
+## Table 01 zu Table 03
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% vz03[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 03 zu Table 01
+rows <- which(str_trim(vz03[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- vz03[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(vz03))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 04
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% vzpg04[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 04 zu Table 01
+rows <- which(str_trim(vzpg04[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- vzpg04[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(vzpg04))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 05
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% pl05[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# nicht allePersonen erhalten Pflegesachleistungen
+
+## Table 05 zu Table 01
+rows <- which(str_trim(pl05[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- pl05[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(pl05))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 06
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% plart06[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+## Table 06 zu Table 01
+rows <- which(str_trim(plart06[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- plart06[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(plart06))*100,2)
+print(perc)
+```
+
+```{r}
+## Table 01 zu Table 07
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% pg07[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# knapp über 70% erhalten Pflegegeld
+
+# Table 07 zu Table 01
+rows <- which(str_trim(pg07[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- pg07[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(pg07))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 08
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% hkp08[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# etwa ein Viertel erhält Leistungen der HKP
+
+# Table 08 zu Table 01
+rows <- which(str_trim(hkp08[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- hkp08[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkp08))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 09
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% hkpgop09[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+# für die wenigsten liegen GOPS vor 
+
+# Table 09 zu Table 01
+rows <- which(str_trim(hkpgop09[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- hkpgop09[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkpgop09))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 10
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% sgbv10[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 10 zu Table 01
+rows <- which(str_trim(sgbv10[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- sgbv10[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(sgbv10))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 11
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% kh11[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 11 zu Table 01
+rows <- which(str_trim(kh11[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- kh11[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(kh11))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 01 zu Table 12
+rows <- which(str_trim(stamm01[["V_ID"]]) %in% kht12[["V_ID"]])
+selected_rows_df_211 <- stamm01[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(stamm01))*100,2)
+print(perc)
+
+# Table 12 zu Table 01
+rows <- which(str_trim(kht12[["V_ID"]]) %in% stamm01[["V_ID"]])
+selected_rows_df_212 <- kht12[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(kht12))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 05 zu Table 06, PL_RENR
+rows <- which(str_trim(pl05[["PL_RENR"]]) %in% plart06[["PL_RENR"]])
+selected_rows_df_211 <- pl05[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(pl05))*100,2)
+print(perc)
+
+# Table 06 zu Table 05, PL_RENR
+rows <- which(str_trim(plart06[["PL_RENR"]]) %in% pl05[["PL_RENR"]])
+selected_rows_df_212 <- plart06[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(plart06))*100,2)
+print(perc)
+```
+
+```{r}
+# Table 08 zu Table 09, HKP_FALLNR
+rows <- which(str_trim(hkp08[["HKP_FALLNR"]]) %in% hkpgop09[["HKP_FALLNR"]])
+selected_rows_df_211 <- hkp08[rows,]
+perc <- round((nrow(selected_rows_df_211)/nrow(hkp08))*100,2)
+print(perc)
+
+# Table 09 zu Table 08, HKP_FALLNR
+rows <- which(str_trim(hkpgop09[["HKP_FALLNR"]]) %in% hkp08[["HKP_FALLNR"]])
+selected_rows_df_212 <- hkpgop09[rows,]
+perc <- round((nrow(selected_rows_df_212)/nrow(hkpgop09))*100,2)
+print(perc)
+```
+
+
+

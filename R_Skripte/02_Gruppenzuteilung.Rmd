@@ -1,0 +1,289 @@
+---
+title: "Gruppenzuteilung"
+output: html_document
+---
+Skript teilt Versicherte in Teilgruppen und bereitet Daten für die Erstellung von TG-PG-Intervall Kombinationen vor (nächstes Skript)
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(psych)
+library(dlookr)
+library(openxlsx)
+library(validate)
+library(epiDisplay)
+```
+
+```{r data_load_2019}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+
+load('stamm01.rda')
+# load('tg02.rda') # fehlt noch
+load('vz03.rda')
+load('vzpg04.rda')
+load('pl05.rda')
+load('plart06.rda')
+load('pg07.rda')
+load('hkp08.rda')
+load('hkpgop09.rda')
+load('sgbv10.rda')
+load('kh11.rda')
+load('kht12.rda')
+```
+
+
+## Gruppen bilden
+### nach Versicherungszeit
+```{r groups_versicherungszeit_2019}
+# Daten in Form bringen
+vz03$V_VZ_VON<- ymd(vz03$V_VZ_VON)
+vz03$V_VZ_BIS<- ymd(vz03$V_VZ_BIS)
+stamm01$V_STERBEDATUM[stamm01$V_STERBEDATUM==""] <- NA
+stamm01$V_STERBEDATUM <- ymd(stamm01$V_STERBEDATUM)
+
+# Versicherungsdauer
+vz03 <- vz03 %>% mutate(versdauer = as.double(V_VZ_BIS - V_VZ_VON))
+
+# kumulative Versicherungsdauer
+vz03a <- vz03 %>%
+  group_by(V_ID) %>%
+  summarise(n = n_distinct(V_VZ_VON),
+            TOTAL = sum(versdauer))
+
+# vollen Datensatz mit Todesdatum verbinden
+vz03b <- left_join(vz03, stamm01, by=("V_ID"))
+vz03b <- vz03b %>% dplyr::mutate(dauerbistod = as.double(V_STERBEDATUM - V_VZ_BIS))
+vz03c <- vz03b %>% filter(dauerbistod==0)
+
+# aggregierten Datensatz mit Todesdatum verbinden
+vz03d <- left_join(vz03a, stamm01, by=("V_ID"))
+
+# Versicherungsbeginn adden
+help1 <- vz03 %>% group_by(V_ID) %>% summarise(erster_beginn = min(V_VZ_VON))
+vz03d <- left_join(vz03d, help1, by=("V_ID"))
+vz03d<- vz03d %>% 
+  mutate(dauerbistod = as.double(V_STERBEDATUM - erster_beginn), 
+         diff_totaltod = dauerbistod - TOTAL,
+         n_diff_totaltod = diff_totaltod - n + 1, 
+         n_TOTAL = TOTAL + n) # n wegen Überschneidungen als Korrektur
+
+
+# Filter nach Tod in Jahr 1 mit voller Versicherungszeit und voller Versicherungszeit
+# grb: es müssen also vollständige VZ gegeben sein, außer die Person ist verstorben (8 Tage sind vermutlich die eingeräumte Toleranz)
+
+# erfüllen Kriterien 
+check1 <- vz03d %>% filter(is.na(V_STERBEDATUM) & n_TOTAL > 357) # ursprünglich 722 
+check2 <- vz03d %>% filter(n_diff_totaltod < 8)
+
+# Indikator für verschiedene Gruppen
+vz03d <- vz03d %>% 
+  mutate(ZG3 = ifelse(is.na(V_STERBEDATUM) & n_TOTAL > 357, 1, ifelse(n_diff_totaltod < 8, 1, 0)), 
+         ZG4 = ifelse(is.na(V_STERBEDATUM) & n_TOTAL > 357, 1, 0))
+
+# für spätere Verwendung ablegen
+data1_zg3 <- vz03d %>% filter(ZG3 == 1) # 2019 Lebende & Verstorbene
+data1_zg4 <- vz03d %>% filter(ZG4 == 1) # Lebende 
+```
+
+
+### nach Pflegegrad
+```{r groups_pflegegrad_2019}
+# Datumsangaben in Form bringen
+vzpg04$V_PG_VON<- ymd(vzpg04$V_PG_VON)
+vzpg04$V_PG_BIS<- ymd(vzpg04$V_PG_BIS)
+
+# spätesten Start- und Endzeitpunkt setzen
+vzpg04$V_PG_VON2 <- vzpg04$V_PG_VON
+vzpg04$V_PG_VON2[vzpg04$V_PG_VON2 < "2019-01-01"] <- "2019-01-01"
+
+vzpg04$V_PG_BIS2 <- vzpg04$V_PG_BIS
+vzpg04$V_PG_BIS2[vzpg04$V_PG_BIS2 > "2019-12-31"] <- "2019-12-31"
+
+
+# verbinde Pflegegrad mit Datensatz Versicherungszeiten
+data2_zg3 <- 
+  left_join(data1_zg3, vzpg04, by=("V_ID")) %>% 
+  dplyr::select(V_ID, V_ALTER, V_STERBEDATUM, ZG3, ZG4, V_ID_PG, V_PFLEGEGRAD, V_PG_VON2, V_PG_BIS2)
+
+### to do: tg02 fehlt ####
+# add Stapelindikator
+# data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
+```
+
+Versicherungsdaten nach Pflegegrad
+```{r vz_nach_pg_2019}
+# erster Pflegegrad:
+vzpg04a <- vzpg04 %>%
+  group_by(V_ID) %>%
+  summarise(n = n_distinct(V_PG_VON),
+            erster_PG = min(V_PG_VON))
+
+# Pflegegrad am 01.01.2019
+table(vzpg04$V_PFLEGEGRAD)
+vzpg04a <- left_join(vzpg04a, vzpg04, by=c("V_ID", "erster_PG"="V_PG_VON"))
+table(vzpg04a$V_PFLEGEGRAD)
+vzpg04a_ersterPG <- vzpg04a
+
+
+### Pflegegraddauer 
+# --> analoges Vorgehen zu Versicherungszeiten (einen Chunk weiter oben)
+vzpg04 <- vzpg04 %>% dplyr::mutate(pgdauer = as.double(V_PG_BIS - V_PG_VON))
+
+# Dauer Pflegegrad
+vzpg04a <- vzpg04 %>%
+  group_by(V_ID) %>%
+  summarise(n = n_distinct(V_PG_VON),
+            TOTAL = sum(pgdauer))
+
+
+# aggregierten Datensatz mit Todesdatum verbinden
+vzpg04d <- left_join(vzpg04a, stamm01, by=("V_ID"))
+
+# PG-Beginn adden
+help1 <- vzpg04 %>% 
+  group_by(V_ID) %>% 
+  summarise(erster_beginn=min(V_PG_VON))
+
+vzpg04d <- left_join(vzpg04d, help1, by=("V_ID"))
+
+vzpg04d <- vzpg04d %>% 
+  dplyr::mutate(dauerbistod = as.double(V_STERBEDATUM- erster_beginn), 
+                diff_totaltod = dauerbistod-TOTAL,
+                n_diff_totaltod = diff_totaltod-n+1, 
+                n_TOTAL=TOTAL+n) # n wegen Überschneidungen als Korrektur
+
+
+#Filter nach Tod in jahr 1 mit voller Versicherungszeit und voller Versicherungszeit
+# erfüllen Kriterien (hier nicht essentiell)
+check1 <- vzpg04d %>% filter(is.na(V_STERBEDATUM)& n_TOTAL > 357) #ursprünglich 722
+check2 <- vzpg04d %>% filter(n_diff_totaltod < 8)
+
+#Überschneidung check 1 und 2
+check <- bind_rows(check1,check2)
+dlookr::diagnose(check)
+
+#erfüllen Kriterien nicht (hier nicht essentiell)
+ohne_pg1 <- vzpg04d %>% filter(is.na(V_STERBEDATUM) & n_TOTAL < 358)
+ohne_pg2 <- vzpg04d %>% filter(n_diff_totaltod > 7)
+
+ohne_pg <- bind_rows(ohne_pg1,ohne_pg2) %>% 
+  mutate(ohne_pg=1) %>% 
+  dplyr::select(V_ID,ohne_pg)
+```
+
+### nach Leistungsart
+```{r groups_leistungsart_2019}
+# in Form bringen
+plart06$PL_LEISTUNGSART2 <- as.numeric(plart06$PL_LEISTUNGSART)
+plart06$LEISTUNG_VON <- ymd(plart06$LEISTUNG_VON)
+plart06$LEISTUNG_BIS <- ymd(plart06$LEISTUNG_BIS)
+
+# relevante TGs filtern 
+plart06a <- plart06 %>% filter(PL_LEISTUNGSART %in% c("999", "12", "05"))
+
+# Marker für TG vergeben
+#### to do: bisher nihct hierarchisch??? ####
+plart06a$TG_Beginn <- plart06a$LEISTUNG_VON
+plart06a <- plart06a %>% mutate(TG = ifelse(PL_LEISTUNGSART == "05", 3,
+                                            ifelse(PL_LEISTUNGSART == "12", 2,
+                                                   ifelse(PL_LEISTUNGSART == "999", 1, NA))))
+
+
+### TG 1
+plart06_tg1 <- plart06a %>% filter(PL_LEISTUNGSART=="999") %>% 
+  mutate(TG_Ende = ceiling_date(LEISTUNG_VON, "month"))
+
+# Verbleib in TG1 quantifizieren
+plart06_tg1a <- plart06_tg1 %>%
+  arrange(V_ID, TG_Beginn) %>% 
+  group_by(V_ID) %>%
+  # wofür steht indx??
+  mutate(indx = c(0, cumsum(as.numeric(lead(TG_Beginn)) > cummax(as.numeric(TG_Ende)))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(start_tg1 = min(TG_Beginn), 
+            end_tg1 = max(TG_Ende), 
+            dauer_tg1 = end_tg1 - start_tg1) %>% 
+  mutate(end_tg1= ymd(end_tg1) - days(1))
+
+
+### TG 2 
+# ldp: beim ersten Codieren TG 2 und 3 vertauscht, wäre aufwendig gewesen das hier zu ändern, wird später korrigiert
+plart06_tg2 <- plart06a %>% 
+  filter(PL_LEISTUNGSART=="12") %>% 
+  mutate(TG_Ende = ceiling_date(LEISTUNG_VON, "month"))
+
+plart06_tg2a <- plart06_tg2 %>%
+  arrange(V_ID, TG_Beginn) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(TG_Beginn)) > cummax(as.numeric(TG_Ende)))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(start_tg2 = min(TG_Beginn), 
+            end_tg2 = max(TG_Ende), 
+            dauer_tg2=end_tg2- start_tg2) %>% 
+  mutate(end_tg2= ymd(end_tg2) - days(1))
+
+
+### TG 3
+plart06_tg3 <- plart06a %>% 
+  filter(PL_LEISTUNGSART=="05") %>% 
+  mutate(TG_Ende = ceiling_date(LEISTUNG_VON, "month"))
+
+plart06_tg3a <- plart06_tg3 %>%
+  arrange(V_ID, TG_Beginn) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(TG_Beginn)) > cummax(as.numeric(TG_Ende)))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(start_tg3 = min(TG_Beginn), 
+            end_tg3 = max(TG_Ende), 
+            dauer_tg3 = end_tg3 - start_tg3) %>% 
+  mutate(end_tg3 = ymd(end_tg3) - days(1))
+
+
+### add Indikator für keine TG (TG 5)
+data5_tg5a <- stamm01 %>% 
+  mutate(start_tg5 = as.Date("2019-01-01"), 
+         end_tg5 = as.Date("2019-12-31")) %>% 
+  dplyr::select(-c(V_ALTER, V_STERBEDATUM))
+```
+
+```{r}
+# Histogramme der verschiedenen Gruppen
+ggplot(plart06_tg1a, aes(dauer_tg1)) +geom_histogram(binwidth = 7)
+ggplot(plart06_tg2a, aes(dauer_tg2)) +geom_histogram(binwidth = 7)
+ggplot(plart06_tg3a, aes(dauer_tg3)) +geom_histogram(binwidth = 7)
+```
+
+## Survival-Datensatz
+```{r}
+# Vorbereitung als Survival-Datensatz
+data3 <- data2_zg3 %>% 
+  mutate(V_STUDIENBEGINN= as.Date("2020-01-01"),
+         V_STUDIENENDE= as.Date("2021-12-31")) %>% 
+  rowwise() %>% 
+  mutate(beobachtungsende = min(V_STUDIENENDE, V_STERBEDATUM, na.rm = T))
+
+# Daten ohne vollständigen PG entfernen
+data4 <- left_join(data3, ohne_pg, by=c("V_ID")) 
+data4$ohne_pg[is.na(data4$ohne_pg)] <- 0
+data4 <- data4 %>% 
+  filter(ohne_pg==0) %>% 
+  dplyr::select(-c(ohne_pg))
+
+# verbinde TGs mit restlichen Daten
+data5_tg1 <- left_join(data4, plart06_tg1a, by=c("V_ID"))
+data5_tg2 <- left_join(data4, plart06_tg2a, by=c("V_ID"))
+data5_tg3 <- left_join(data4, plart06_tg3a, by=c("V_ID"))
+data5_tg5 <- left_join(data4, data5_tg5a, by=c("V_ID"))
+```
+
+```{r}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+
+save(data5_tg1,file="data5_tg1.Rda")
+save(data5_tg2,file="data5_tg2.Rda")
+save(data5_tg3,file="data5_tg3.Rda")
+save(data5_tg5,file="data5_tg5.Rda")
+save(data4,file="data4.Rda")
+```
+
+
