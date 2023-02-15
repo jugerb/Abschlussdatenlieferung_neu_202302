@@ -8,16 +8,14 @@ editor_options:
 
 ```{r setup, include=FALSE}
 library(epiDisplay) 
-library(tidyverse) #alle tidy-packages auf einmal
+library(tidyverse) 
 library(lubridate)
-library(stringr)
 library(psych)
-library(dplyr)
 library(dlookr)
 ```
 
 ```{r data_load}
-setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
 
 load("data4.Rda")
 load("data5_tg1.Rda")
@@ -129,7 +127,7 @@ test2 <- dlookr::diagnose(data4)
 ```
 
 ```{r}
-setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
 save(data11,file="data11.Rda")
 ```
 
