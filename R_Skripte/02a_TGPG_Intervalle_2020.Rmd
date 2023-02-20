@@ -1,0 +1,137 @@
+---
+title: "Gruppenzuteilung TG-PG-Intervalle"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+library(epiDisplay) 
+library(tidyverse) 
+library(lubridate)
+library(psych)
+library(dlookr)
+```
+
+```{r data_load}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
+
+load("data4.Rda")
+load("data5_tg1.Rda")
+load("data5_tg2.Rda")
+load("data5_tg3.Rda")
+load("data5_tg5.Rda")
+```
+
+Start und End-Date hinzufügen
+```{r}
+data5_tg1 <- data5_tg1 %>% 
+  mutate(start_tg=start_tg1, end_tg=end_tg1) %>% 
+  filter(!(is.na(start_tg))) 
+
+data5_tg2 <- data5_tg2 %>%
+  mutate(start_tg=start_tg2, end_tg=end_tg2) %>%
+  filter(!(is.na(start_tg))) 
+
+data5_tg3 <- data5_tg3 %>% 
+  mutate(start_tg=start_tg3, end_tg=end_tg3) %>% 
+  filter(!(is.na(start_tg))) 
+
+data5_tg5 <- data5_tg5 %>% 
+  mutate(start_tg=start_tg5, end_tg=end_tg5) %>% 
+  filter(!(is.na(start_tg)))
+```
+
+```{r data_merge}
+# bisschen Chaos:
+data6 <- bind_rows(data5_tg1, data5_tg2)
+data7 <- bind_rows(data6, data5_tg3)
+
+data7a <-  bind_rows(data7, data5_tg5)
+data7a <- data7a %>% arrange(V_ID)
+
+data8 <- data7a
+data9 <- data8 
+
+data10 <- data9 %>% 
+  mutate(tg=ifelse(!is.na(start_tg1), 1,
+                   ifelse(!is.na(start_tg2), 3,
+                          ifelse(!is.na(start_tg3), 2,
+                                 ifelse(!is.na(start_tg5), 5,0))))) %>% 
+  filter(tg!=0)
+```
+
+
+```{r sequence}
+# für jeden Tag einer PG und TG-Kombi Zeile erstellen
+data10a <- data10 %>%
+  # create sequence of days between start and end
+  mutate(day = map2(start_tg, end_tg, ~seq(.x, .y, "day"))) %>%
+  # unnest data
+  unnest(cols = c(day)) %>%                                                        
+  group_by(V_ID, day)
+
+# nur relevante Tage innerhalb eines PG behalten
+data10b <- data10a %>%
+  filter(V_PG_VON2 <= day & V_PG_BIS2 >= day) %>% 
+  filter(V_STERBEDATUM>=day | (is.na(V_STERBEDATUM)))
+
+# nur eine TG pro Zeile behalten
+data10c <- data10b %>%
+  group_by(V_ID, day) %>% 
+  arrange(tg) %>%  
+  mutate(n_ID = paste0(row_number()))
+
+data10d <- data10c %>%
+  filter(n_ID==1)
+
+# zusammenhängende Zeiträume für PG und TG-Kombi
+data10e <- data10d %>% 
+  group_by(V_ID, V_PFLEGEGRAD, tg) %>%
+  mutate(DATE.diff = c(1, diff(day))) %>%
+  mutate(non.consecutive = DATE.diff != 1) %>%
+  mutate(PERIOD = cumsum(non.consecutive))
+
+data10f <- data10e %>% 
+  group_by(V_ID, V_PFLEGEGRAD, tg,PERIOD) %>%
+  summarise(START_DATE = min(day),
+            END_DATE = max(day)) %>%
+  ungroup()
+
+# add Variablen zu Datensatz
+data4a <- data4 %>%  
+  group_by(V_ID) %>% 
+  mutate(n_ID = paste0( row_number()))
+
+data4a <- data4a %>% 
+  filter(n_ID==1) %>% 
+  dplyr::select(V_ID,V_ALTER,V_STERBEDATUM,ZG3, ZG4  )
+
+data11 <- left_join(data10f,data4a, by=c("V_ID"))
+```
+
+```{r}
+# Ordnung TGs korrigieren (das ist die im vorherigen Skript angekündigte Korrektur)
+data11 <- data11 %>% 
+  dplyr::mutate(TG= if_else(tg==1, "TG1", if_else(tg==2, "TG3", if_else(tg==3, "TG2", if_else(tg==5, "TG5","TG6")))))
+
+table(data11$tg, data11$TG)
+
+data11<- data11 %>% 
+  dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1), 
+                tod = if_else(is.na(V_STERBEDATUM),0,1))
+
+test <- dlookr::diagnose(data11)
+test2 <- dlookr::diagnose(data4)
+```
+
+```{r}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
+save(data11,file="data11.Rda")
+```
+
+Quellen:
+
+* <https://stackoverflow.com/questions/52515974/splitting-overlapping-rows-within-groups-based-on-dates>
+* <https://stackoverflow.com/questions/45993458/combine-rows-with-consecutive-dates-into-single-row-with-start-and-end-dates>

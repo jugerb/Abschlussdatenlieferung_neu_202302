@@ -22,13 +22,16 @@ sgbv10 <-  read.csv("10_sgbv_2019_2023-02-10 16-43-34.csv", sep=",")
 kh11 <-  read.csv("11_KH_2019_2023-02-10 16-49-50.csv", sep=",")
 kht12 <-  read.csv("12_kht_2019_2023-02-10 16-51-52.csv", sep=",")
 
+# Probleme mit HKP_GOPS, daher hier nochmal quick check
 # #hkpgops
 # sum(hkpgop09$HKP_FALLNR %in% hkp08$HKP_FALLNR)
 # sum(hkp08$HKP_FALLNR %in% hkpgop09$HKP_FALLNR)
+# table(hkpgop09$HKP_GOP)
 # 
 # #hkpmedis
 # sum(hkpmedi09$HKP_FALLNR %in% hkp08$HKP_FALLNR)
 # sum(hkp08$HKP_FALLNR %in% hkpmedi09$HKP_FALLNR)
+# table(hkpmedi09$HKP_GOP)
 
 # data save
 setwd('O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019')
@@ -60,6 +63,7 @@ plart06 <-  read.csv("06_art_pg_20_21_2212202022-12-20 15-53-22.csv", sep=",")
 pg07 <-  read.csv("07_pflegegeld_20_21_220722.csv", sep=",")
 hkp08 <-  read.csv("08_hkp_20-21_2022-07-21 14-31-31.csv", sep=",")
 hkpgop09 <-  read.csv("09_gop_hkp_20-21_2022-07-21 15-25-41.csv", sep=",")
+hkpmedi09 <-  read.csv("hkp_medi_20_21_2211282022-11-28 10-51-39.csv", sep=",")
 sgbv10 <-  read.csv("10_sgbv_20-21_2022-07-21 15-31-46.csv", sep=",")
 kh11 <-  read.csv("11_kh_20-21_2022-07-21 15-37-30.csv", sep=",")
 kht12 <-  read.csv("12_kht_20-21_2022-07-21 15-41-21.csv", sep=",")
@@ -102,6 +106,9 @@ save(hkp08, file="hkp08.rda")
 hkpgop09 <- hkpgop09 %>% filter(HKP_FALLNR %in% hkp08$HKP_FALLNR)
 save(hkpgop09, file="hkpgop09.rda")
 
+test <- hkpmedi09 %>% filter(HKP_FALLNR %in% hkp08$HKP_FALLNR)
+save(hkpmedi09, file="hkpmedi09.rda")
+
 # nur 2020 übrig behalten
 sgbv10 <- sgbv10 %>% filter(ymd(HM_DATUM) <= as.Date('2020-12-31'))
 save(sgbv10, file="sgbv10.rda")
@@ -132,13 +139,16 @@ sgbv10 <-  read.csv("10_sgbv_2021_2023-02-14 18-39-15.csv", sep=",")
 kh11 <-  read.csv("11_kh_2021_2023-02-14 18-55-36.csv", sep=",")
 kht12 <-  read.csv("12_kht_2021_2023-02-14 19-05-51.csv", sep=",")
 
+# Probleme mit HKP_GOPS, daher hier nochmal quick check
 # #hkpgops
 # sum(hkpgop09$HKP_FALLNR %in% hkp08$HKP_FALLNR)
 # sum(hkp08$HKP_FALLNR %in% hkpgop09$HKP_FALLNR)
+# table(hkpgop09$HKP_GOP)
 # 
 # #hkpmedis
 # sum(hkpmedi09$HKP_FALLNR %in% hkp08$HKP_FALLNR)
 # sum(hkp08$HKP_FALLNR %in% hkpmedi09$HKP_FALLNR)
+# table(hkpmedi09$HKP_GOP)
 
 # data save
 setwd('O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021')
