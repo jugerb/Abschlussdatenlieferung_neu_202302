@@ -336,45 +336,6 @@ check4 <- check3 %>% group_by(V_ID) %>%
 ausschluss_hkp <- check4 %>% select(V_ID,exkl)
 ```
 
-```{r}
-# # was genau passiert hier? --> Code entfernen?
-# 
-# # IDs mit Tageskosten von über xx ausschließen
-# check5 <- left_join(data11, check4, by=c("V_ID"))
-# 
-# check6 <- check5 %>% filter(!(is.na(exkl)))
-# 
-# # Vergleich mit ganzem Datensatz
-# table(check6$TG)
-# table(data11$TG)
-# 
-# check7 <- check6 %>% group_by(TG) %>%
-#   summarise(tage= sum(intervalldauer))
-# 
-# table(check7$tage)
-# 
-# # Prozent verlorene Daten berechnen
-# data1a_zg3 <- data11 %>%  group_by(V_ID, TG) %>%
-#   summarise(VZ_tage = sum(intervalldauer ))
-# 
-# data1a_zg_sum <- data11  %>% group_by(TG) %>%
-#   summarise(VZ_tage_sum = sum(intervalldauer ))
-# 
-# data1a_zg3_TG <- left_join(data1a_zg3, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>%
-#   mutate(Verweildauer= if_else(is.na(Verweildauer),0,Verweildauer ),
-#          oKH_Tage=VZ_tage- Verweildauer )
-# 
-# data1a_zg3_verweil <- data1a_zg3_TG %>%
-#   group_by(TG) %>%
-#   summarise(VZ_tage= sum(VZ_tage),
-#             oKH_Tage = sum(oKH_Tage))
-# 
-# check6 <- left_join(data1a_zg3_verweil, check5, by=c("TG")) %>%
-#   mutate_all(~replace(., is.na(.), 0)) %>%
-#   mutate(anteil_verlust= tage/VZ_tage)
-```
-
-
 ```{r ausschluss_pg_2020}
 # Herkunft des Codes siehe hier: "O:\U5279\Routinedaten\Abschlussdatenlieferung20_21\R-Skripte\19_Kosten_Pflegegeld_v2.Rmd"
 pg07$LEISTUNG_VON<- ymd(pg07$LEISTUNG_VON)
@@ -397,46 +358,6 @@ check2 <- check %>% group_by(V_ID) %>%
 ausschluss_pg <- check2 %>% select(V_ID, exkl)
 ```
 
-```{r}
-# Was passiert hier? Kann das weg?
-# save IDs für Auschluss
-# setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung18_19/Daten")
-# write.xlsx(ausschluss_pg, file = "ausschluss_pg.xlsx")
-# 
-# 
-# # IDs mit Tageskosten von über xx ausschließen
-# check3 <- left_join(data11, check2, by=c("V_ID"))
-# check4 <- check3 %>% filter(!(is.na(exkl)))
-# 
-# # Vergleich mit ganzem Datensatz
-# table(check4$TG)
-# # table(data11$TG)
-# 
-# check5 <- check4 %>% group_by(TG) %>% 
-#   summarise(tage= sum(intervalldauer))
-# 
-# table(check5$tage)
-# 
-# # Prozent verlorene Daten berechnen
-# data1a_zg3 <- data11 %>%  group_by(V_ID, TG) %>% 
-#   summarise(VZ_tage = sum(intervalldauer ))
-# 
-# data1a_zg_sum <- data11  %>% group_by(TG) %>% 
-#   summarise(VZ_tage_sum = sum(intervalldauer ))
-# 
-# data1a_zg3_TG <- left_join(data1a_zg3, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>% 
-#   mutate(Verweildauer= if_else(is.na(Verweildauer), 0, Verweildauer),
-#          oKH_Tage=VZ_tage - Verweildauer )
-# 
-# data1a_zg3_verweil <- data1a_zg3_TG %>% 
-#   group_by(TG) %>%
-#   summarise(VZ_tage= sum(VZ_tage),
-#             oKH_Tage = sum(oKH_Tage))
-# 
-# check6 <- left_join(data1a_zg3_verweil, check5, by=c("TG")) %>% 
-#   mutate_all(~replace(., is.na(.), 0)) %>% 
-#   mutate(anteil_verlust= tage/VZ_tage)
-```
 
 ```{r cleaning_2020}
 # erstes Mengengerüst Fallzahl & Behandlungstage nach TG
