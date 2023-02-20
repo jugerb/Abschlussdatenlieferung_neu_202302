@@ -360,7 +360,7 @@ vz03d <- vz03d %>%
          ZG4 = ifelse(is.na(V_STERBEDATUM) & n_TOTAL > 357, 1, 0))
 
 # für spätere Verwendung ablegen
-data1_zg3 <- vz03d %>% filter(ZG3 == 1) # 2021 Lebende & Verstorbene
+data1_zg3 <- vz03d %>% filter(ZG3 == 1) # 2020 Lebende & Verstorbene
 data1_zg4 <- vz03d %>% filter(ZG4 == 1) # Lebende 
 ```
 
@@ -390,7 +390,7 @@ data2_zg3 <-
 ```
 
 Versicherungsdaten nach Pflegegrad
-```{r vz_nach_pg_2021}
+```{r vz_nach_pg_2020}
 # erster Pflegegrad:
 vzpg04a <- vzpg04 %>%
   group_by(V_ID) %>%
@@ -451,7 +451,7 @@ ohne_pg <- bind_rows(ohne_pg1,ohne_pg2) %>%
 ```
 
 ### nach Leistungsart
-```{r groups_leistungsart_2021}
+```{r groups_leistungsart_2020}
 # in Form bringen
 plart06$PL_LEISTUNGSART2 <- as.numeric(plart06$PL_LEISTUNGSART)
 plart06$LEISTUNG_VON <- ymd(plart06$LEISTUNG_VON)
@@ -520,8 +520,8 @@ plart06_tg3a <- plart06_tg3 %>%
 
 ### add Indikator für keine TG (TG 5)
 data5_tg5a <- stamm01 %>% 
-  mutate(start_tg5 = as.Date("2021-01-01"), 
-         end_tg5 = as.Date("2021-12-31")) %>% 
+  mutate(start_tg5 = as.Date("2020-01-01"), 
+         end_tg5 = as.Date("2020-12-31")) %>% 
   dplyr::select(-c(V_ALTER, V_STERBEDATUM))
 ```
 
