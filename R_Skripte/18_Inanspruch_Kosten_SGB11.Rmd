@@ -1,0 +1,1870 @@
+---
+title: "Deskription Gruppen"
+author: "ldp / grb"
+date: "2022/08/16"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(psych)
+library(dlookr)
+library(table1)
+library(janitor)
+library(openxlsx)
+library(readxl)
+#library(epiDisplay)
+```
+
+
+# 2019
+```{r data_load_2019}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("plart06.Rda")
+load("kh11.Rda")
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2019.xlsx",3)  
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2019.xlsx",9) 
+
+hilfsdatei_SGB11 <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/hilfsdatei_SGB11.xlsx")
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+```
+
+
+<!-- Ausschluss von IDs mit Kosten über 10000€ in einer Rechnung -->
+<!-- ```{r} -->
+<!-- check <- plart06 %>% filter(BETRAG_RECHNUNG>3000| BETRAG_RECHNUNG<(-3000)) -->
+
+<!-- # nach ID zusammenfassen -->
+<!-- check2 <- check %>% group_by(V_ID) %>%  -->
+<!--   summarise(n=n()) %>%  -->
+<!--   mutate(exkl=1) -->
+
+<!-- # save IDs für Auschluss -->
+<!-- ausschluss_sgb11 <- check2 %>% select(V_ID,exkl) -->
+<!-- setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten") -->
+<!-- write.xlsx(ausschluss_sgb11, file = "ausschluss_sgb11.xlsx") -->
+
+<!-- # IDs mit Tageskosten von über xx ausschließen -->
+<!-- check3 <- left_join(data1, check2,by=c("V_ID")) -->
+
+<!-- check4 <- check3 %>% filter(!(is.na(exkl))) -->
+<!-- ``` -->
+
+
+Vorbereitung KH-Daten
+```{r kh_prep_2019, warning= FALSE}
+### KH-Daten mit Stammdaten verbinden
+# nur vollstationär behalten
+kh11a<- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg=="01") 
+
+# überschneidende Hospitalisierungen verbinden
+kh11a$KH_BEGINN_DAT <- ymd(kh11a$KH_BEGINN_DAT)
+kh11a$KH_ENDE_DAT <- ymd(kh11a$KH_ENDE_DAT)
+
+kh11a <- kh11a %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+kh11b<- kh11a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+# Klinikdaten für merge mit Pflegegeld vorbereiten (rename und select)
+kh11c <- kh11b %>% 
+  mutate(LEISTUNG_VON=KH_BEGINN_DAT2,
+         LEISTUNG_BIS=KH_ENDE_DAT2,
+         GEBPOS_KURZ_NEU= "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, GEBPOS_KURZ_NEU)
+
+# für jeden Kliniktag einer Person eine Zeile erstellen
+kh11d  <- kh11c %>%
+  # create sequence of days between start and end
+  mutate(leistungstag = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>%
+  # unnest data
+  unnest(cols = c(leistungstag))                                                       
+
+# ready for merge (Krankenhausindikator vergeben)
+kh11e <- kh11d %>% 
+  dplyr::select(V_ID, leistungstag) %>% 
+  mutate(kh=1)
+```
+
+```{r, include=FALSE}
+# teilweise Rechnungsdatum und Leistungsdatum nicht identisch
+# für Indikatoren nicht relevant
+
+# Slicen zur Skriptprobe
+plart06a <- plart06 %>% arrange(V_ID)
+
+plart06a$LEISTUNG_VON<- ymd(plart06a$LEISTUNG_VON)
+plart06a$LEISTUNG_BIS<- ymd(plart06a$LEISTUNG_BIS)
+
+# Kosten für RENR mit mehreren Leistungsarten verteilen 
+# check1a <- plart06a %>% group_by (PL_RENR, PL_LEISTUNGSART) %>% 
+#   summarise(BETRAG_RECHNUNG2=sum(BETRAG_RECHNUNGSPOSTEN)) %>% ungroup() 
+
+check1a <- plart06a %>% 
+  mutate(PL_LEISTUNGSART_HR = PL_LEISTUNGSART)
+
+check1a$PL_LEISTUNGSART_HR[check1a$PL_LEISTUNGSART == "998"] <- "01"
+
+# check1b <- left_join(plart06a, check1a, by=c("PL_RENR","PL_LEISTUNGSART" ))
+check1b <- check1a
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen 
+check1  <- check1b %>%
+  # create sequence of days between start and end
+  mutate(leistungstag = map2(LEISTUNG_VON ,LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>% 
+  # unnest data
+  unnest(cols = c(leistungstag)) %>%                                                       
+  group_by(V_ID,PL_RENR,PL_LEISTUNGSART_HR, leistungstag) 
+```
+
+
+Data prep 
+```{r data_prep_2019, include = FALSE}
+# Data prep
+str(data1)
+# Dauer des Intervalls
+data1<- data1%>% dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1),
+                               tod = if_else(is.na(V_STERBEDATUM),0,1))
+
+# Falldaten mit Stammdaten verbinden
+data3 <- left_join(data1,check1,by=("V_ID"))
+
+# nur Fälle im Beobachtungszeitraum (der ID, TG) behalten
+data3a <- data3 %>% filter(leistungstag>=START_DATE & leistungstag<=END_DATE )
+
+# Falldaten mit KH_Daten verbinden
+data3b <- left_join(data3a, kh11e, by=c("V_ID", "leistungstag"))
+data3c <- data3b %>% filter(is.na(kh))
+
+# Kosten anteilig berechnen (über Rechnung gemittelt)
+data3d <- data3c %>% 
+  group_by(V_ID,PL_RENR, PL_LEISTUNGSART_HR) %>% 
+  mutate(kontakte = n(),
+         Kosten_kontakt_ges_netto = RE_ZAHLBETRAG /kontakte,
+         Kosten_kontakt_ges_brutto = RE_BRUTTO/kontakte)
+
+hilfsdatei_SGB11 <- hilfsdatei_SGB11 %>% 
+  rename(PL_LEISTUNGSART2=PL_LEISTUNGSART) %>%
+  filter(PL_LEISTUNGSART2=="01"|
+           PL_LEISTUNGSART2=="02"|
+           PL_LEISTUNGSART2=="03"|
+           PL_LEISTUNGSART2=="05"|
+           PL_LEISTUNGSART2=="12")
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+
+# Faktorvariable für group_by
+data3d <- data3d %>% 
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD), 
+         PL_LEISTUNGSART_HR = as.factor(PL_LEISTUNGSART_HR)) 
+
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
+
+data4 <- data3d %>% 
+  mutate(PL_LEISTUNGSART2= if_else(PL_LEISTUNGSART_HR=="01", "01",
+                                   if_else((PL_LEISTUNGSART_HR=="02" | PL_LEISTUNGSART_HR=="03"), "02",
+                                           if_else((PL_LEISTUNGSART_HR=="04" | PL_LEISTUNGSART_HR=="07"), "03",
+                                                   if_else((PL_LEISTUNGSART_HR=="05"),"05",
+                                                           if_else((PL_LEISTUNGSART_HR=="12"),"12",
+                                                                   ("Rest")))))))
+
+table(data4$PL_LEISTUNGSART_HR, data4$PL_LEISTUNGSART2)
+
+# nur ambulante Pflege,Tagespflege (Nachtpflege nicht vorhanden) oder Kurzzeit- und Verhinderungspflege
+data4_1 <- data4 %>% 
+  filter(PL_LEISTUNGSART2=="01"|
+           PL_LEISTUNGSART2=="02"|
+           PL_LEISTUNGSART2=="03"|
+           PL_LEISTUNGSART2=="05"|
+           PL_LEISTUNGSART2=="12")
+```
+
+
+
+
+## Leistung nach ZG und TG
+### einzelne Leistungsarten (nur 01,02,03)
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1%>%  
+  group_by(V_ID,TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>%  
+  mutate(Verweildauer = if_else(is.na(Verweildauer),0,Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer)
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil_1 <- data1a_zg3 %>% 
+  group_by( TG, .drop=FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+            oKH_Tage = sum(oKH_Tage),
+            link=1)
+
+# für jede Abrechnungsform eine Zeile
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11,by=c("link")) %>% 
+  dplyr::select(-c(link))
+
+# auf ID-Basis 
+data4_zg3_id <- data4_1  %>%  
+  group_by(V_ID,PL_LEISTUNGSART2,TG) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(PL_LEISTUNGSART2, TG, .drop=FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>%
+  summarise(n_ID = sum(id_ja),
+            link = 1)
+
+data4_zg3_id2 <- left_join(data4_zg3_id2, hilfsdatei_SGB11,by=c("link")) %>% 
+  dplyr::select(-c(link))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL), 0, n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4_1  %>%  
+  group_by(V_ID, leistungstag,TG,PL_LEISTUNGSART2 ) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,PL_LEISTUNGSART2,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4%>%  
+  group_by(PL_LEISTUNGSART2,TG,.drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+            SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","PL_LEISTUNGSART2"))  
+  #%>%mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_data_4_1 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_data_4_1 <- results_alle_data_4_1 %>% 
+  dplyr::select(c(TG, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL,
+                  Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto, 
+                  PL_GesKosten_jahr_brutto))
+```
+
+
+### Kosten einzelne Leistungsdaten
+```{r}
+data4_zg3_kosten2 <- data4 %>%  
+  group_by(TG,PL_LEISTUNGSART_HR, .drop = FALSE) %>%
+  summarise(SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto),
+            SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto)) 
+
+results_leistungsdaten  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, by=c("TG"))
+
+# Daten für Tabelle vorbereiten
+results_leistungsdaten   <- results_leistungsdaten %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,)
+```
+
+
+### alle Leistungsdaten
+```{r}
+### auf ID-Basis 
+data1a_zg3_verweil <- data1a_zg3_verweil %>% 
+  filter(PL_LEISTUNGSART2=="01") %>% 
+  mutate(PL_LEISTUNGSART2="alle")
+
+data4_zg3_id <- data4 %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG,.drop = FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>%
+  summarise(n_ID = sum(id_ja),
+            link = 1)
+
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL  )
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4  %>% 
+  group_by(V_ID, leistungstag,TG) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage= oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4 %>%  
+  group_by(TG, .drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+            SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG"))  
+  #%>%mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG", "PL_LEISTUNGSART2"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_data4 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+
+# relevante Variablen für Tabelle
+results_alle_data4 <- results_alle_data4 %>% 
+  dplyr::select(c(TG, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL,
+                  Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto,IN_Tage_Jahr,
+                  PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+
+results_alle <- bind_rows(results_alle_data_4_1, results_alle_data4)
+```
+
+
+## Leistung nach ZG, PG und TG
+### einzelne Leistungsdaten  (nur 01,02,03) 
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1 %>% 
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(VZ_tage = sum(intervalldauer))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID","TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>%  
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer)
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil_1 <- data1a_zg3 %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>%  
+  summarise(VZ_tage = sum(VZ_tage),
+            oKH_Tage = sum(oKH_Tage),
+            KH_Tage = sum(Verweildauer),
+            link = 1)
+
+# für jede Abrechnungsform eine Zeile
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11, by=c("link")) %>% 
+  dplyr::select(-c(link))
+
+
+### auf ID-Basis 
+data4_zg3_id <- data4_1 %>%  
+  group_by(V_ID, PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod,.drop=FALSE) %>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1 %>%
+  group_by(V_ID,TG,V_PFLEGEGRAD,V_ALTER, tod) %>%
+  summarise(id_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(n_ID = sum(id_ja),
+             link = 1)
+
+data4_zg3_id2 <- left_join(data4_zg3_id2, hilfsdatei_SGB11,by=c("link") ) %>% 
+  dplyr::select(-c(link))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2, data4_zg3_id, 
+                           by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4_1  %>% 
+  group_by(V_ID, leistungstag,TG,V_PFLEGEGRAD,V_ALTER, tod,PL_LEISTUNGSART2) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod,PL_LEISTUNGSART2,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1, 
+                            by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4 %>%  
+  group_by(PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+    summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+              SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, 
+                         by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, 
+                         by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w_data_4_1 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365 / oKH_Tage,
+         IN_Tage_Jahr = IN_Tage * 365 / oKH_Tage,
+         proz_n_IN_PL = n_IN_PL / n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto / IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto / IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w_data_4_1 <- results_alle_w_data_4_1 %>% 
+  dplyr::select(c(TG,V_PFLEGEGRAD,V_ALTER, tod, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL, Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+```
+
+
+### Kosten einzelne Leistungsdaten
+```{r}
+data4_zg3_kosten2 <- data4 %>%
+  group_by(PL_LEISTUNGSART_HR,TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto),
+            SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto)) 
+
+results_leistungsdaten_w  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, 
+                                       by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))
+
+# relevante Variablen für Tabelle
+results_leistungsdaten_w <- results_leistungsdaten_w   %>%
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365 / oKH_Tage)
+```
+
+### alle Daten
+```{r}
+### auf ID-Basis 
+data1a_zg3_verweil <- data1a_zg3_verweil %>% 
+  filter(PL_LEISTUNGSART2 == "01") %>% 
+  mutate(PL_LEISTUNGSART2 = "alle")
+
+data4_zg3_id <- data4 %>%  
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG, V_PFLEGEGRAD, V_ALTER, tod,.drop=FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1 %>%  
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>%
+  summarise(id_ja = 1) %>% 
+  group_by(TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(n_ID = sum(id_ja),
+             link = 1)
+
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4  %>%  
+  group_by(V_ID, leistungstag, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD, V_ALTER, tod,.drop=FALSE) %>% 
+  summarise(IN_Tage = sum(ID_ja)) 
+
+data4_zg3_tage2 <- left_join(data1a_zg3_verweil, data4_zg3_tage1, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))%>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage - IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage, oKH_Tage))
+
+# Gesamtkosten
+data4_zg3_kosten <- data4 %>% group_by(TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+    summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+              SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))  
+  #%>% mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, 
+                         by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod", "PL_LEISTUNGSART2") )  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, 
+                         by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod") )  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w_data4 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w_data4 <- results_alle_w_data4 %>% 
+  dplyr::select(c(TG,V_PFLEGEGRAD,V_ALTER, tod, PL_LEISTUNGSART2,n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL, Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+
+results_alle_w <- bind_rows(results_alle_w_data_4_1, results_alle_w_data4)
+```
+
+Wichtung Hauptanalysen
+```{r wichtung_2019}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>% 
+  filter(PL_LEISTUNGSART2 == "01") %>%
+  group_by(TG) %>% 
+  summarise(days_tg = sum(oKH_Tage))
+
+# mit Ergebnisse verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG == "TG1" & PL_LEISTUNGSART2 == "01") %>% 
+  mutate(weight = oKH_Tage / days_tg) %>% 
+  ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(PL_GesKosten_jahr_brutto_w = PL_GesKosten_jahr_brutto *weight,
+         PL_GesKosten_jahr_netto_w = PL_GesKosten_jahr_netto *weight,
+         IN_Tage_Jahr_w = IN_Tage_Jahr*weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG, PL_LEISTUNGSART2) %>% 
+  filter(weight > 0) %>% 
+  summarise(oKH_Tage = sum(oKH_Tage),
+            IN_Tage_Jahr = sum(IN_Tage_Jahr_w),
+            PL_GesKosten_netto_jahr = sum(PL_GesKosten_jahr_netto_w),
+            PL_GesKosten_brutto_jahr = sum(PL_GesKosten_jahr_brutto_w))
+
+# for n
+help1 <- left_join(data1, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% group_by(TG) %>% 
+  summarise(N = n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+Wichtung einzelne Leistungsdaten
+```{r wichtung2_2019, warning=FALSE}
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(results_leistungsdaten_w, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% mutate(PL_GesKosten_jahr_brutto_w = PL_GesKosten_jahr_brutto *weight,
+                            PL_GesKosten_jahr_netto_w = PL_GesKosten_jahr_netto *weight)
+
+#finale Werte
+results_leistungsdaten_weight <- data6b %>% 
+  group_by(TG,PL_LEISTUNGSART_HR) %>% 
+  filter(weight > 0) %>% 
+  summarise(PL_GesKosten_netto_jahr = sum(PL_GesKosten_jahr_netto_w),
+            PL_GesKosten_brutto_jahr = sum(PL_GesKosten_jahr_brutto_w))
+```
+
+
+```{r export_2019}
+list_of_datasets <- list("results_alle" =results_alle,
+                         "results_weight" =results_weight)
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/18_Kosten_SGB11_2019.xlsx")
+
+
+list_of_datasets <- list("results_leistungsdaten" = results_leistungsdaten,
+                         "results_leistungsdaten_weight" = results_leistungsdaten_weight)
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/18_Kosten_SGB11_alle_Leistungen_2019.xlsx")
+```
+
+
+# 2020
+```{r data_load_2020}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("plart06.Rda")
+load("kh11.Rda")
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2020.xlsx",3)  
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2020.xlsx",9) 
+
+hilfsdatei_SGB11 <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/hilfsdatei_SGB11.xlsx")
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+```
+
+
+<!-- Ausschluss von IDs mit Kosten über 10000€ in einer Rechnung -->
+<!-- ```{r} -->
+<!-- check <- plart06 %>% filter(BETRAG_RECHNUNG>3000| BETRAG_RECHNUNG<(-3000)) -->
+
+<!-- # nach ID zusammenfassen -->
+<!-- check2 <- check %>% group_by(V_ID) %>%  -->
+<!--   summarise(n=n()) %>%  -->
+<!--   mutate(exkl=1) -->
+
+<!-- # save IDs für Auschluss -->
+<!-- ausschluss_sgb11 <- check2 %>% select(V_ID,exkl) -->
+<!-- setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten") -->
+<!-- write.xlsx(ausschluss_sgb11, file = "ausschluss_sgb11.xlsx") -->
+
+<!-- # IDs mit Tageskosten von über xx ausschließen -->
+<!-- check3 <- left_join(data1, check2,by=c("V_ID")) -->
+
+<!-- check4 <- check3 %>% filter(!(is.na(exkl))) -->
+<!-- ``` -->
+
+
+Vorbereitung KH-Daten
+```{r kh_prep_2020, warning= FALSE}
+### KH-Daten mit Stammdaten verbinden
+# nur vollstationär behalten
+kh11a<- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg=="01") 
+
+# überschneidende Hospitalisierungen verbinden
+kh11a$KH_BEGINN_DAT <- ymd(kh11a$KH_BEGINN_DAT)
+kh11a$KH_ENDE_DAT <- ymd(kh11a$KH_ENDE_DAT)
+
+kh11a <- kh11a %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+kh11b<- kh11a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+# Klinikdaten für merge mit Pflegegeld vorbereiten (rename und select)
+kh11c <- kh11b %>% 
+  mutate(LEISTUNG_VON=KH_BEGINN_DAT2,
+         LEISTUNG_BIS=KH_ENDE_DAT2,
+         GEBPOS_KURZ_NEU= "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, GEBPOS_KURZ_NEU)
+
+# für jeden Kliniktag einer Person eine Zeile erstellen
+kh11d  <- kh11c %>%
+  # create sequence of days between start and end
+  mutate(leistungstag = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>%
+  # unnest data
+  unnest(cols = c(leistungstag))                                                       
+
+# ready for merge (Krankenhausindikator vergeben)
+kh11e <- kh11d %>% 
+  dplyr::select(V_ID, leistungstag) %>% 
+  mutate(kh=1)
+```
+
+```{r, include=FALSE}
+# teilweise Rechnungsdatum und Leistungsdatum nicht identisch
+# für Indikatoren nicht relevant
+
+# Slicen zur Skriptprobe
+plart06a <- plart06 %>% arrange(V_ID)
+
+plart06a$LEISTUNG_VON<- ymd(plart06a$LEISTUNG_VON)
+plart06a$LEISTUNG_BIS<- ymd(plart06a$LEISTUNG_BIS)
+
+# Kosten für RENR mit mehreren Leistungsarten verteilen 
+# check1a <- plart06a %>% group_by (PL_RENR, PL_LEISTUNGSART) %>% 
+#   summarise(BETRAG_RECHNUNG2=sum(BETRAG_RECHNUNGSPOSTEN)) %>% ungroup() 
+
+check1a <- plart06a %>% 
+  mutate(PL_LEISTUNGSART_HR = PL_LEISTUNGSART)
+
+check1a$PL_LEISTUNGSART_HR[check1a$PL_LEISTUNGSART == "998"] <- "01"
+
+# check1b <- left_join(plart06a, check1a, by=c("PL_RENR","PL_LEISTUNGSART" ))
+check1b <- check1a
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen 
+check1  <- check1b %>%
+  # create sequence of days between start and end
+  mutate(leistungstag = map2(LEISTUNG_VON ,LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>% 
+  # unnest data
+  unnest(cols = c(leistungstag)) %>%                                                       
+  group_by(V_ID,PL_RENR,PL_LEISTUNGSART_HR, leistungstag) 
+```
+
+
+Data prep 
+```{r data_prep_2020, include = FALSE}
+# Data prep
+str(data1)
+# Dauer des Intervalls
+data1<- data1%>% dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1),
+                               tod = if_else(is.na(V_STERBEDATUM),0,1))
+
+# Falldaten mit Stammdaten verbinden
+data3 <- left_join(data1,check1,by=("V_ID"))
+
+# nur Fälle im Beobachtungszeitraum (der ID, TG) behalten
+data3a <- data3 %>% filter(leistungstag>=START_DATE & leistungstag<=END_DATE )
+
+# Falldaten mit KH_Daten verbinden
+data3b <- left_join(data3a, kh11e, by=c("V_ID", "leistungstag"))
+data3c <- data3b %>% filter(is.na(kh))
+
+# Kosten anteilig berechnen (über Rechnung gemittelt)
+data3d <- data3c %>% 
+  group_by(V_ID,PL_RENR, PL_LEISTUNGSART_HR) %>% 
+  mutate(kontakte = n(),
+         Kosten_kontakt_ges_netto = RE_ZAHLBETRAG /kontakte,
+         Kosten_kontakt_ges_brutto = RE_BRUTTO/kontakte)
+
+hilfsdatei_SGB11 <- hilfsdatei_SGB11 %>% 
+  rename(PL_LEISTUNGSART2=PL_LEISTUNGSART) %>%
+  filter(PL_LEISTUNGSART2=="01"|
+           PL_LEISTUNGSART2=="02"|
+           PL_LEISTUNGSART2=="03"|
+           PL_LEISTUNGSART2=="05"|
+           PL_LEISTUNGSART2=="12")
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+
+# Faktorvariable für group_by
+data3d <- data3d %>% 
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD), 
+         PL_LEISTUNGSART_HR = as.factor(PL_LEISTUNGSART_HR)) 
+
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
+
+data4 <- data3d %>% 
+  mutate(PL_LEISTUNGSART2= if_else(PL_LEISTUNGSART_HR=="01", "01",
+                                   if_else((PL_LEISTUNGSART_HR=="02" | PL_LEISTUNGSART_HR=="03"), "02",
+                                           if_else((PL_LEISTUNGSART_HR=="04" | PL_LEISTUNGSART_HR=="07"), "03",
+                                                   if_else((PL_LEISTUNGSART_HR=="05"),"05",
+                                                           if_else((PL_LEISTUNGSART_HR=="12"),"12",
+                                                                   ("Rest")))))))
+
+table(data4$PL_LEISTUNGSART_HR, data4$PL_LEISTUNGSART2)
+
+# nur ambulante Pflege,Tagespflege (Nachtpflege nicht vorhanden) oder Kurzzeit- und Verhinderungspflege
+data4_1 <- data4 %>% 
+  filter(PL_LEISTUNGSART2=="01"|
+           PL_LEISTUNGSART2=="02"|
+           PL_LEISTUNGSART2=="03"|
+           PL_LEISTUNGSART2=="05"|
+           PL_LEISTUNGSART2=="12")
+```
+
+
+
+
+## Leistung nach ZG und TG
+### einzelne Leistungsarten (nur 01,02,03)
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1%>%  
+  group_by(V_ID,TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>%  
+  mutate(Verweildauer = if_else(is.na(Verweildauer),0,Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer)
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil_1 <- data1a_zg3 %>% 
+  group_by( TG, .drop=FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+            oKH_Tage = sum(oKH_Tage),
+            link=1)
+
+# für jede Abrechnungsform eine Zeile
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11,by=c("link")) %>% 
+  dplyr::select(-c(link))
+
+# auf ID-Basis 
+data4_zg3_id <- data4_1  %>%  
+  group_by(V_ID,PL_LEISTUNGSART2,TG) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(PL_LEISTUNGSART2, TG, .drop=FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>%
+  summarise(n_ID = sum(id_ja),
+            link = 1)
+
+data4_zg3_id2 <- left_join(data4_zg3_id2, hilfsdatei_SGB11,by=c("link")) %>% 
+  dplyr::select(-c(link))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL), 0, n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4_1  %>%  
+  group_by(V_ID, leistungstag,TG,PL_LEISTUNGSART2 ) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,PL_LEISTUNGSART2,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4%>%  
+  group_by(PL_LEISTUNGSART2,TG,.drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+            SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","PL_LEISTUNGSART2"))  
+  #%>%mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_data_4_1 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_data_4_1 <- results_alle_data_4_1 %>% 
+  dplyr::select(c(TG, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL,
+                  Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto, 
+                  PL_GesKosten_jahr_brutto))
+```
+
+
+### Kosten einzelne Leistungsdaten
+```{r}
+data4_zg3_kosten2 <- data4 %>%  
+  group_by(TG,PL_LEISTUNGSART_HR, .drop = FALSE) %>%
+  summarise(SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto),
+            SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto)) 
+
+results_leistungsdaten  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, by=c("TG"))
+
+# Daten für Tabelle vorbereiten
+results_leistungsdaten   <- results_leistungsdaten %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,)
+```
+
+
+### alle Leistungsdaten
+```{r}
+### auf ID-Basis 
+data1a_zg3_verweil <- data1a_zg3_verweil %>% 
+  filter(PL_LEISTUNGSART2=="01") %>% 
+  mutate(PL_LEISTUNGSART2="alle")
+
+data4_zg3_id <- data4 %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG,.drop = FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>%
+  summarise(n_ID = sum(id_ja),
+            link = 1)
+
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL  )
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4  %>% 
+  group_by(V_ID, leistungstag,TG) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage= oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4 %>%  
+  group_by(TG, .drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+            SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG"))  
+  #%>%mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG", "PL_LEISTUNGSART2"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_data4 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+
+# relevante Variablen für Tabelle
+results_alle_data4 <- results_alle_data4 %>% 
+  dplyr::select(c(TG, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL,
+                  Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto,IN_Tage_Jahr,
+                  PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+
+results_alle <- bind_rows(results_alle_data_4_1, results_alle_data4)
+```
+
+
+## Leistung nach ZG, PG und TG
+### einzelne Leistungsdaten  (nur 01,02,03) 
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1 %>% 
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(VZ_tage = sum(intervalldauer))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID","TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>%  
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer)
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil_1 <- data1a_zg3 %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>%  
+  summarise(VZ_tage = sum(VZ_tage),
+            oKH_Tage = sum(oKH_Tage),
+            KH_Tage = sum(Verweildauer),
+            link = 1)
+
+# für jede Abrechnungsform eine Zeile
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11, by=c("link")) %>% 
+  dplyr::select(-c(link))
+
+
+### auf ID-Basis 
+data4_zg3_id <- data4_1 %>%  
+  group_by(V_ID, PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod,.drop=FALSE) %>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1 %>%
+  group_by(V_ID,TG,V_PFLEGEGRAD,V_ALTER, tod) %>%
+  summarise(id_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(n_ID = sum(id_ja),
+             link = 1)
+
+data4_zg3_id2 <- left_join(data4_zg3_id2, hilfsdatei_SGB11,by=c("link") ) %>% 
+  dplyr::select(-c(link))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2, data4_zg3_id, 
+                           by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4_1  %>% 
+  group_by(V_ID, leistungstag,TG,V_PFLEGEGRAD,V_ALTER, tod,PL_LEISTUNGSART2) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod,PL_LEISTUNGSART2,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1, 
+                            by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4 %>%  
+  group_by(PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+    summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+              SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, 
+                         by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, 
+                         by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w_data_4_1 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365 / oKH_Tage,
+         IN_Tage_Jahr = IN_Tage * 365 / oKH_Tage,
+         proz_n_IN_PL = n_IN_PL / n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto / IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto / IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w_data_4_1 <- results_alle_w_data_4_1 %>% 
+  dplyr::select(c(TG,V_PFLEGEGRAD,V_ALTER, tod, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL, Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+```
+
+
+### Kosten einzelne Leistungsdaten
+```{r}
+data4_zg3_kosten2 <- data4 %>%
+  group_by(PL_LEISTUNGSART_HR,TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto),
+            SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto)) 
+
+results_leistungsdaten_w  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, 
+                                       by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))
+
+# relevante Variablen für Tabelle
+results_leistungsdaten_w <- results_leistungsdaten_w   %>%
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365 / oKH_Tage)
+```
+
+### alle Daten
+```{r}
+### auf ID-Basis 
+data1a_zg3_verweil <- data1a_zg3_verweil %>% 
+  filter(PL_LEISTUNGSART2 == "01") %>% 
+  mutate(PL_LEISTUNGSART2 = "alle")
+
+data4_zg3_id <- data4 %>%  
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG, V_PFLEGEGRAD, V_ALTER, tod,.drop=FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1 %>%  
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>%
+  summarise(id_ja = 1) %>% 
+  group_by(TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(n_ID = sum(id_ja),
+             link = 1)
+
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4  %>%  
+  group_by(V_ID, leistungstag, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD, V_ALTER, tod,.drop=FALSE) %>% 
+  summarise(IN_Tage = sum(ID_ja)) 
+
+data4_zg3_tage2 <- left_join(data1a_zg3_verweil, data4_zg3_tage1, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))%>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage - IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage, oKH_Tage))
+
+# Gesamtkosten
+data4_zg3_kosten <- data4 %>% group_by(TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+    summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+              SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))  
+  #%>% mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, 
+                         by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod", "PL_LEISTUNGSART2") )  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, 
+                         by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod") )  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w_data4 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w_data4 <- results_alle_w_data4 %>% 
+  dplyr::select(c(TG,V_PFLEGEGRAD,V_ALTER, tod, PL_LEISTUNGSART2,n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL, Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+
+results_alle_w <- bind_rows(results_alle_w_data_4_1, results_alle_w_data4)
+```
+
+Wichtung Hauptanalysen
+```{r wichtung_2020}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>% 
+  filter(PL_LEISTUNGSART2 == "01") %>%
+  group_by(TG) %>% 
+  summarise(days_tg = sum(oKH_Tage))
+
+# mit Ergebnisse verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG == "TG1" & PL_LEISTUNGSART2 == "01") %>% 
+  mutate(weight = oKH_Tage / days_tg) %>% 
+  ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(PL_GesKosten_jahr_brutto_w = PL_GesKosten_jahr_brutto *weight,
+         PL_GesKosten_jahr_netto_w = PL_GesKosten_jahr_netto *weight,
+         IN_Tage_Jahr_w = IN_Tage_Jahr*weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG, PL_LEISTUNGSART2) %>% 
+  filter(weight > 0) %>% 
+  summarise(oKH_Tage = sum(oKH_Tage),
+            IN_Tage_Jahr = sum(IN_Tage_Jahr_w),
+            PL_GesKosten_netto_jahr = sum(PL_GesKosten_jahr_netto_w),
+            PL_GesKosten_brutto_jahr = sum(PL_GesKosten_jahr_brutto_w))
+
+# for n
+help1 <- left_join(data1, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% group_by(TG) %>% 
+  summarise(N = n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+Wichtung einzelne Leistungsdaten
+```{r wichtung2_2020, warning=FALSE}
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(results_leistungsdaten_w, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% mutate(PL_GesKosten_jahr_brutto_w = PL_GesKosten_jahr_brutto *weight,
+                            PL_GesKosten_jahr_netto_w = PL_GesKosten_jahr_netto *weight)
+
+#finale Werte
+results_leistungsdaten_weight <- data6b %>% 
+  group_by(TG,PL_LEISTUNGSART_HR) %>% 
+  filter(weight > 0) %>% 
+  summarise(PL_GesKosten_netto_jahr = sum(PL_GesKosten_jahr_netto_w),
+            PL_GesKosten_brutto_jahr = sum(PL_GesKosten_jahr_brutto_w))
+```
+
+
+```{r export_2020}
+list_of_datasets <- list("results_alle" =results_alle,
+                         "results_weight" =results_weight)
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/18_Kosten_SGB11_2020.xlsx")
+
+
+list_of_datasets <- list("results_leistungsdaten" = results_leistungsdaten,
+                         "results_leistungsdaten_weight" = results_leistungsdaten_weight)
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/18_Kosten_SGB11_alle_Leistungen_2020.xlsx")
+```
+
+
+# 2021
+```{r data_load_2021}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("plart06.Rda")
+load("kh11.Rda")
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2021.xlsx",3)  
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2021.xlsx",9) 
+
+hilfsdatei_SGB11 <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/hilfsdatei_SGB11.xlsx")
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+```
+
+
+<!-- Ausschluss von IDs mit Kosten über 10000€ in einer Rechnung -->
+<!-- ```{r} -->
+<!-- check <- plart06 %>% filter(BETRAG_RECHNUNG>3000| BETRAG_RECHNUNG<(-3000)) -->
+
+<!-- # nach ID zusammenfassen -->
+<!-- check2 <- check %>% group_by(V_ID) %>%  -->
+<!--   summarise(n=n()) %>%  -->
+<!--   mutate(exkl=1) -->
+
+<!-- # save IDs für Auschluss -->
+<!-- ausschluss_sgb11 <- check2 %>% select(V_ID,exkl) -->
+<!-- setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten") -->
+<!-- write.xlsx(ausschluss_sgb11, file = "ausschluss_sgb11.xlsx") -->
+
+<!-- # IDs mit Tageskosten von über xx ausschließen -->
+<!-- check3 <- left_join(data1, check2,by=c("V_ID")) -->
+
+<!-- check4 <- check3 %>% filter(!(is.na(exkl))) -->
+<!-- ``` -->
+
+
+Vorbereitung KH-Daten
+```{r kh_prep_2021, warning= FALSE}
+### KH-Daten mit Stammdaten verbinden
+# nur vollstationär behalten
+kh11a<- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg=="01") 
+
+# überschneidende Hospitalisierungen verbinden
+kh11a$KH_BEGINN_DAT <- ymd(kh11a$KH_BEGINN_DAT)
+kh11a$KH_ENDE_DAT <- ymd(kh11a$KH_ENDE_DAT)
+
+kh11a <- kh11a %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+kh11b<- kh11a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+# Klinikdaten für merge mit Pflegegeld vorbereiten (rename und select)
+kh11c <- kh11b %>% 
+  mutate(LEISTUNG_VON=KH_BEGINN_DAT2,
+         LEISTUNG_BIS=KH_ENDE_DAT2,
+         GEBPOS_KURZ_NEU= "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, GEBPOS_KURZ_NEU)
+
+# für jeden Kliniktag einer Person eine Zeile erstellen
+kh11d  <- kh11c %>%
+  # create sequence of days between start and end
+  mutate(leistungstag = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>%
+  # unnest data
+  unnest(cols = c(leistungstag))                                                       
+
+# ready for merge (Krankenhausindikator vergeben)
+kh11e <- kh11d %>% 
+  dplyr::select(V_ID, leistungstag) %>% 
+  mutate(kh=1)
+```
+
+```{r, include=FALSE}
+# teilweise Rechnungsdatum und Leistungsdatum nicht identisch
+# für Indikatoren nicht relevant
+
+# Slicen zur Skriptprobe
+plart06a <- plart06 %>% arrange(V_ID)
+
+plart06a$LEISTUNG_VON<- ymd(plart06a$LEISTUNG_VON)
+plart06a$LEISTUNG_BIS<- ymd(plart06a$LEISTUNG_BIS)
+
+# Kosten für RENR mit mehreren Leistungsarten verteilen 
+# check1a <- plart06a %>% group_by (PL_RENR, PL_LEISTUNGSART) %>% 
+#   summarise(BETRAG_RECHNUNG2=sum(BETRAG_RECHNUNGSPOSTEN)) %>% ungroup() 
+
+check1a <- plart06a %>% 
+  mutate(PL_LEISTUNGSART_HR = PL_LEISTUNGSART)
+
+check1a$PL_LEISTUNGSART_HR[check1a$PL_LEISTUNGSART == "998"] <- "01"
+
+# check1b <- left_join(plart06a, check1a, by=c("PL_RENR","PL_LEISTUNGSART" ))
+check1b <- check1a
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen 
+check1  <- check1b %>%
+  # create sequence of days between start and end
+  mutate(leistungstag = map2(LEISTUNG_VON ,LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>% 
+  # unnest data
+  unnest(cols = c(leistungstag)) %>%                                                       
+  group_by(V_ID,PL_RENR,PL_LEISTUNGSART_HR, leistungstag) 
+```
+
+
+Data prep 
+```{r data_prep_2021, include = FALSE}
+# Data prep
+str(data1)
+# Dauer des Intervalls
+data1<- data1%>% dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1),
+                               tod = if_else(is.na(V_STERBEDATUM),0,1))
+
+# Falldaten mit Stammdaten verbinden
+data3 <- left_join(data1,check1,by=("V_ID"))
+
+# nur Fälle im Beobachtungszeitraum (der ID, TG) behalten
+data3a <- data3 %>% filter(leistungstag>=START_DATE & leistungstag<=END_DATE )
+
+# Falldaten mit KH_Daten verbinden
+data3b <- left_join(data3a, kh11e, by=c("V_ID", "leistungstag"))
+data3c <- data3b %>% filter(is.na(kh))
+
+# Kosten anteilig berechnen (über Rechnung gemittelt)
+data3d <- data3c %>% 
+  group_by(V_ID,PL_RENR, PL_LEISTUNGSART_HR) %>% 
+  mutate(kontakte = n(),
+         Kosten_kontakt_ges_netto = RE_ZAHLBETRAG /kontakte,
+         Kosten_kontakt_ges_brutto = RE_BRUTTO/kontakte)
+
+hilfsdatei_SGB11 <- hilfsdatei_SGB11 %>% 
+  rename(PL_LEISTUNGSART2=PL_LEISTUNGSART) %>%
+  filter(PL_LEISTUNGSART2=="01"|
+           PL_LEISTUNGSART2=="02"|
+           PL_LEISTUNGSART2=="03"|
+           PL_LEISTUNGSART2=="05"|
+           PL_LEISTUNGSART2=="12")
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+
+# Faktorvariable für group_by
+data3d <- data3d %>% 
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD), 
+         PL_LEISTUNGSART_HR = as.factor(PL_LEISTUNGSART_HR)) 
+
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
+
+data4 <- data3d %>% 
+  mutate(PL_LEISTUNGSART2= if_else(PL_LEISTUNGSART_HR=="01", "01",
+                                   if_else((PL_LEISTUNGSART_HR=="02" | PL_LEISTUNGSART_HR=="03"), "02",
+                                           if_else((PL_LEISTUNGSART_HR=="04" | PL_LEISTUNGSART_HR=="07"), "03",
+                                                   if_else((PL_LEISTUNGSART_HR=="05"),"05",
+                                                           if_else((PL_LEISTUNGSART_HR=="12"),"12",
+                                                                   ("Rest")))))))
+
+table(data4$PL_LEISTUNGSART_HR, data4$PL_LEISTUNGSART2)
+
+# nur ambulante Pflege,Tagespflege (Nachtpflege nicht vorhanden) oder Kurzzeit- und Verhinderungspflege
+data4_1 <- data4 %>% 
+  filter(PL_LEISTUNGSART2=="01"|
+           PL_LEISTUNGSART2=="02"|
+           PL_LEISTUNGSART2=="03"|
+           PL_LEISTUNGSART2=="05"|
+           PL_LEISTUNGSART2=="12")
+```
+
+
+
+
+## Leistung nach ZG und TG
+### einzelne Leistungsarten (nur 01,02,03)
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1%>%  
+  group_by(V_ID,TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>%  
+  mutate(Verweildauer = if_else(is.na(Verweildauer),0,Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer)
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil_1 <- data1a_zg3 %>% 
+  group_by( TG, .drop=FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+            oKH_Tage = sum(oKH_Tage),
+            link=1)
+
+# für jede Abrechnungsform eine Zeile
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11,by=c("link")) %>% 
+  dplyr::select(-c(link))
+
+# auf ID-Basis 
+data4_zg3_id <- data4_1  %>%  
+  group_by(V_ID,PL_LEISTUNGSART2,TG) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(PL_LEISTUNGSART2, TG, .drop=FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>%
+  summarise(n_ID = sum(id_ja),
+            link = 1)
+
+data4_zg3_id2 <- left_join(data4_zg3_id2, hilfsdatei_SGB11,by=c("link")) %>% 
+  dplyr::select(-c(link))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL), 0, n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4_1  %>%  
+  group_by(V_ID, leistungstag,TG,PL_LEISTUNGSART2 ) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,PL_LEISTUNGSART2,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4%>%  
+  group_by(PL_LEISTUNGSART2,TG,.drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+            SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","PL_LEISTUNGSART2"))  
+  #%>%mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG","PL_LEISTUNGSART2")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_data_4_1 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_data_4_1 <- results_alle_data_4_1 %>% 
+  dplyr::select(c(TG, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL,
+                  Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto, 
+                  PL_GesKosten_jahr_brutto))
+```
+
+
+### Kosten einzelne Leistungsdaten
+```{r}
+data4_zg3_kosten2 <- data4 %>%  
+  group_by(TG,PL_LEISTUNGSART_HR, .drop = FALSE) %>%
+  summarise(SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto),
+            SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto)) 
+
+results_leistungsdaten  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, by=c("TG"))
+
+# Daten für Tabelle vorbereiten
+results_leistungsdaten   <- results_leistungsdaten %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,)
+```
+
+
+### alle Leistungsdaten
+```{r}
+### auf ID-Basis 
+data1a_zg3_verweil <- data1a_zg3_verweil %>% 
+  filter(PL_LEISTUNGSART2=="01") %>% 
+  mutate(PL_LEISTUNGSART2="alle")
+
+data4_zg3_id <- data4 %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG,.drop = FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>%
+  summarise(n_ID = sum(id_ja),
+            link = 1)
+
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL  )
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4  %>% 
+  group_by(V_ID, leistungstag,TG) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage= oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4 %>%  
+  group_by(TG, .drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+            SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG"))  
+  #%>%mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG", "PL_LEISTUNGSART2"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_data4 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+
+# relevante Variablen für Tabelle
+results_alle_data4 <- results_alle_data4 %>% 
+  dplyr::select(c(TG, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL,
+                  Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto,IN_Tage_Jahr,
+                  PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+
+results_alle <- bind_rows(results_alle_data_4_1, results_alle_data4)
+```
+
+
+## Leistung nach ZG, PG und TG
+### einzelne Leistungsdaten  (nur 01,02,03) 
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1 %>% 
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(VZ_tage = sum(intervalldauer))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID","TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>%  
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer)
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil_1 <- data1a_zg3 %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>%  
+  summarise(VZ_tage = sum(VZ_tage),
+            oKH_Tage = sum(oKH_Tage),
+            KH_Tage = sum(Verweildauer),
+            link = 1)
+
+# für jede Abrechnungsform eine Zeile
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11, by=c("link")) %>% 
+  dplyr::select(-c(link))
+
+
+### auf ID-Basis 
+data4_zg3_id <- data4_1 %>%  
+  group_by(V_ID, PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod,.drop=FALSE) %>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1 %>%
+  group_by(V_ID,TG,V_PFLEGEGRAD,V_ALTER, tod) %>%
+  summarise(id_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(n_ID = sum(id_ja),
+             link = 1)
+
+data4_zg3_id2 <- left_join(data4_zg3_id2, hilfsdatei_SGB11,by=c("link") ) %>% 
+  dplyr::select(-c(link))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2, data4_zg3_id, 
+                           by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4_1  %>% 
+  group_by(V_ID, leistungstag,TG,V_PFLEGEGRAD,V_ALTER, tod,PL_LEISTUNGSART2) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod,PL_LEISTUNGSART2,.drop=FALSE) %>% 
+  summarise(IN_Tage= sum(ID_ja)) 
+
+data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1, 
+                            by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage,oKH_Tage))
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4 %>%  
+  group_by(PL_LEISTUNGSART2,TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+    summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+              SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, 
+                         by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, 
+                         by=c("TG","PL_LEISTUNGSART2","V_PFLEGEGRAD","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w_data_4_1 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365 / oKH_Tage,
+         IN_Tage_Jahr = IN_Tage * 365 / oKH_Tage,
+         proz_n_IN_PL = n_IN_PL / n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto / IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto / IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w_data_4_1 <- results_alle_w_data_4_1 %>% 
+  dplyr::select(c(TG,V_PFLEGEGRAD,V_ALTER, tod, PL_LEISTUNGSART2, n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL, Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+```
+
+
+### Kosten einzelne Leistungsdaten
+```{r}
+data4_zg3_kosten2 <- data4 %>%
+  group_by(PL_LEISTUNGSART_HR,TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+  summarise(SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto),
+            SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto)) 
+
+results_leistungsdaten_w  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, 
+                                       by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))
+
+# relevante Variablen für Tabelle
+results_leistungsdaten_w <- results_leistungsdaten_w   %>%
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365 / oKH_Tage)
+```
+
+### alle Daten
+```{r}
+### auf ID-Basis 
+data1a_zg3_verweil <- data1a_zg3_verweil %>% 
+  filter(PL_LEISTUNGSART2 == "01") %>% 
+  mutate(PL_LEISTUNGSART2 = "alle")
+
+data4_zg3_id <- data4 %>%  
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG, V_PFLEGEGRAD, V_ALTER, tod,.drop=FALSE)%>% 
+  summarise(n_IN_PL = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1 %>%  
+  group_by(V_ID, TG, V_PFLEGEGRAD, V_ALTER, tod) %>%
+  summarise(id_ja = 1) %>% 
+  group_by(TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(n_ID = sum(id_ja),
+             link = 1)
+
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(n_IN_PL = if_else(is.na(n_IN_PL),0,n_IN_PL),
+         n_noIN__PL = n_ID- n_IN_PL)
+
+# Gesamttage mit Leistungen und Tage ohne Leistungen 
+data4_zg3_tage1 <- data4  %>%  
+  group_by(V_ID, leistungstag, TG, V_PFLEGEGRAD, V_ALTER, tod) %>% 
+  summarise(ID_ja = 1) %>% 
+  group_by(TG,V_PFLEGEGRAD, V_ALTER, tod,.drop=FALSE) %>% 
+  summarise(IN_Tage = sum(ID_ja)) 
+
+data4_zg3_tage2 <- left_join(data1a_zg3_verweil, data4_zg3_tage1, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))%>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage = oKH_Tage - IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage, oKH_Tage))
+
+# Gesamtkosten
+data4_zg3_kosten <- data4 %>% group_by(TG,V_PFLEGEGRAD,V_ALTER, tod, .drop=FALSE) %>%
+    summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+              SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod"))  
+  #%>% mutate(ZG="ZG3") %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, 
+                         by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod", "PL_LEISTUNGSART2") )  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, 
+                         by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod") )  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w_data4 <- data4_zg3_c %>% 
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
+         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
+         proz_n_IN_PL = n_IN_PL/n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w_data4 <- results_alle_w_data4 %>% 
+  dplyr::select(c(TG,V_PFLEGEGRAD,V_ALTER, tod, PL_LEISTUNGSART2,n_ID, VZ_tage, oKH_Tage, n_IN_PL,IN_Tage,proz_n_IN_PL, Kosten_pro_tag_LE_netto,Kosten_pro_tag_LE_brutto, IN_Tage_Jahr, PL_GesKosten_jahr_netto,PL_GesKosten_jahr_brutto))
+
+results_alle_w <- bind_rows(results_alle_w_data_4_1, results_alle_w_data4)
+```
+
+Wichtung Hauptanalysen
+```{r wichtung_2021}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>% 
+  filter(PL_LEISTUNGSART2 == "01") %>%
+  group_by(TG) %>% 
+  summarise(days_tg = sum(oKH_Tage))
+
+# mit Ergebnisse verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG == "TG1" & PL_LEISTUNGSART2 == "01") %>% 
+  mutate(weight = oKH_Tage / days_tg) %>% 
+  ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(PL_GesKosten_jahr_brutto_w = PL_GesKosten_jahr_brutto *weight,
+         PL_GesKosten_jahr_netto_w = PL_GesKosten_jahr_netto *weight,
+         IN_Tage_Jahr_w = IN_Tage_Jahr*weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG, PL_LEISTUNGSART2) %>% 
+  filter(weight > 0) %>% 
+  summarise(oKH_Tage = sum(oKH_Tage),
+            IN_Tage_Jahr = sum(IN_Tage_Jahr_w),
+            PL_GesKosten_netto_jahr = sum(PL_GesKosten_jahr_netto_w),
+            PL_GesKosten_brutto_jahr = sum(PL_GesKosten_jahr_brutto_w))
+
+# for n
+help1 <- left_join(data1, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% group_by(TG) %>% 
+  summarise(N = n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+Wichtung einzelne Leistungsdaten
+```{r wichtung2_2021, warning=FALSE}
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(results_leistungsdaten_w, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% mutate(PL_GesKosten_jahr_brutto_w = PL_GesKosten_jahr_brutto *weight,
+                            PL_GesKosten_jahr_netto_w = PL_GesKosten_jahr_netto *weight)
+
+#finale Werte
+results_leistungsdaten_weight <- data6b %>% 
+  group_by(TG,PL_LEISTUNGSART_HR) %>% 
+  filter(weight > 0) %>% 
+  summarise(PL_GesKosten_netto_jahr = sum(PL_GesKosten_jahr_netto_w),
+            PL_GesKosten_brutto_jahr = sum(PL_GesKosten_jahr_brutto_w))
+```
+
+
+```{r export_2021}
+list_of_datasets <- list("results_alle" =results_alle,
+                         "results_weight" =results_weight)
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/18_Kosten_SGB11_2021.xlsx")
+
+
+list_of_datasets <- list("results_leistungsdaten" = results_leistungsdaten,
+                         "results_leistungsdaten_weight" = results_leistungsdaten_weight)
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/18_Kosten_SGB11_alle_Leistungen_2021.xlsx")
+```
