@@ -1,0 +1,924 @@
+---
+title: "Deskription Gruppen"
+author: "ldp"
+date: "2022/08/16"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+library(tidyverse) 
+library(lubridate)
+library(psych)
+library(dlookr)
+library(janitor)
+library(openxlsx)
+library(readxl)
+#library(epiDisplay)
+```
+
+
+# 2019
+```{r data_load_2019}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("pg07.Rda")
+load("kh11.Rda")
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2019.xlsx",3) 
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2019.xlsx",9) 
+```
+
+
+Vorbereitung KH-Daten
+```{r kh_prep_2019, warning= FALSE}
+# nur vollstationäre Fälle behalten
+kh11a<- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg == "01")
+
+#überschneidende Hospitalisierungen verbinden
+kh11a$KH_BEGINN_DAT <- ymd(kh11a$KH_BEGINN_DAT)
+kh11a$KH_ENDE_DAT <- ymd(kh11a$KH_ENDE_DAT)
+
+kh11a <- kh11a %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+kh11b<- kh11a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+# Klinikdaten für merge mit Pflegegeld vorbereiten (rename und select)
+kh11c <- kh11b %>% 
+  mutate(LEISTUNG_VON = KH_BEGINN_DAT2,
+         LEISTUNG_BIS = KH_ENDE_DAT2,
+         GEBPOS_KURZ_NEU = "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, GEBPOS_KURZ_NEU)
+```
+
+Vorbereitung Daten Pflegegeld 1
+```{r, include=FALSE}
+pg07$LEISTUNG_VON<- ymd(pg07$LEISTUNG_VON)
+pg07$LEISTUNG_BIS<- ymd(pg07$LEISTUNG_BIS)
+
+# Datensatz für Analysen erstellen
+help1a <- pg07%>% arrange(V_ID) %>% 
+  filter(GEBPOS_KURZ_NEU=="Geld")
+
+# ID für Zahlungen erstellen
+help1 <- help1a %>% mutate(pg_id=row_number())
+```
+
+
+Exklusion Pflegegeld
+```{r, include=FALSE}
+# # Exklusion ab bestimmter Höhe, 2000 €
+# check <- help1 %>% filter(ZAHLBETRAG>2000 | ZAHLBETRAG<(-2000))
+# 
+# # nach ID zusammenfassen
+# check2 <- check %>% 
+#   group_by(V_ID) %>% 
+#   summarise(n = n()) %>% 
+#   mutate(exkl = 1)
+# 
+# # # save IDs für Auschluss
+# # ausschluss_pg <- check2 %>% select(V_ID,exkl)
+# # setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten")
+# # write.xlsx(ausschluss_pg, file = "ausschluss_pg.xlsx")
+```
+
+
+Vorbereitung Daten Pflegegeld 1
+```{r, include=FALSE}
+# Daten mit Hospitalisierungen (row_bind)  verbinden  
+help2 <- bind_rows(help1, kh11c)
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen (getrennt nach ID für Pflegegeld)
+data3a <- help2 %>%
+  # create sequence of days between start and end
+  mutate(day = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>% 
+  # unnest data
+  unnest(cols = c(day)) %>%                                                       
+  group_by(V_ID,GEBPOS_KURZ_NEU,pg_id, day)
+
+data3a2 <- data3a %>% 
+  arrange(V_ID) %>% 
+  ungroup()
+
+# einheitlichen Indikator erstellen
+data3b <- data3a2 %>%
+  mutate(geld = if_else(GEBPOS_KURZ_NEU=="Geld", 1, 0),
+         kh= if_else(GEBPOS_KURZ_NEU=="KH", 1, 0))
+
+# für jede group_by Kombi prüfen ob an bestimmten Tag Pflegeld und/oder Hospitalisierung
+data3c <- data3b %>% 
+  group_by(V_ID,  day, pg_id) %>% 
+  summarise(geld = max(geld),
+            kh = max(kh))
+
+# nur Tage mit Pflegegeld und ohne Hospitalisierung behalten
+data3d <- data3c %>% 
+  filter(!(kh == 1)) %>% 
+  filter(geld == 1)
+
+# gefilterte Daten mit Pflegegeld-Zahlungen verbinden (um nun Kosten pro verbleibendem Tag zu berechnen)
+data3e <- left_join(help1, data3d , by=c("V_ID","pg_id"))
+
+data3e <- data3e %>% 
+  group_by(V_ID, pg_id) %>% 
+  mutate(tage_mit_leistung = n(),
+         zahlung_pro_leistungstag = ZAHLBETRAG / tage_mit_leistung) #%>% 
+  #dplyr::select(-c(V_PFLEGEGRAD,TG))
+
+# Daten verbinden (double check und um Stammdaten zu erhalten)
+data4a <- left_join(data1, data3e,by=("V_ID"))  
+data4 <- data4a  %>% 
+  filter(START_DATE<=day & END_DATE>=day)
+
+data4 <- data4 %>% 
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD)) 
+
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
+```
+
+
+## Leistung nach ZG und TG
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1  %>% 
+  group_by(V_ID, TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID","TG")) %>% 
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by(TG, .drop = FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+             oKH_Tage = sum(oKH_Tage))
+
+### auf ID-Basis 
+data4_zg3_id <- data4  %>%  
+  group_by(V_ID,TG) %>%  
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_IN_Pgeld = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>% 
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_ID = sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2, data4_zg3_id, by=c("TG")) %>% 
+  mutate(n_noIN__Pgeld = n_ID - n_IN_Pgeld )
+
+# Gesamtkosten
+data4_zg3_kosten <- data4  %>% 
+  group_by(TG, .drop = FALSE) %>%
+  summarise(SUM_Pgeld = sum(zahlung_pro_leistungstag))
+
+
+### Kosten pro ID 
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG")) # %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_kosten, by=c("TG")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle <- data4_zg3_b %>% 
+  mutate(SUM_Pgeld_jahr = SUM_Pgeld * 365 / oKH_Tage
+         #,proz_Pgeld= n_IN_Pgeld/n_ID
+  )
+```
+
+
+## Leistung nach ZG, PG und TG
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1  %>%  
+  group_by(V_ID, V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER)
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID", "V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>% 
+    mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by(V_PFLEGEGRAD,TG,V_ALTER, tod, .drop=FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+             oKH_Tage = sum(oKH_Tage))
+
+### auf ID-Basis 
+data4_zg3_id <- data4  %>% 
+  group_by(V_ID,V_PFLEGEGRAD, TG,V_ALTER, tod) %>%  
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(n_IN_Pgeld = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(n_ID= sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>% 
+  mutate(n_IN_Pgeld = if_else(is.na(n_IN_Pgeld), 0, n_IN_Pgeld),
+         n_noIN__Pgeld = n_ID - n_IN_Pgeld)
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4  %>% 
+  group_by(V_PFLEGEGRAD, TG, V_ALTER, tod) %>%
+  summarise(SUM_Pgeld = sum(zahlung_pro_leistungstag))
+
+
+### Kosten pro ID 
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_kosten, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w <- data4_zg3_b %>% 
+  mutate(SUM_Pgeld_jahr= SUM_Pgeld*365/oKH_Tage
+         #,proz_Pgeld= n_IN_Pgeld/n_ID
+  )
+```
+
+
+```{r wichtung_2019}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>%
+  group_by(TG) %>% 
+  summarise(days_tg = sum(oKH_Tage))
+
+# mit Ergebnise verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG == "TG1") %>% 
+  mutate(weight = oKH_Tage/days_tg) %>% 
+  ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(SUM_Pgeld_jahr_w = SUM_Pgeld_jahr * weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG) %>% 
+ filter(weight > 0) %>% 
+  summarise(oKH_Tage = sum(oKH_Tage),
+            SUM_Pgeld_jahr = sum(SUM_Pgeld_jahr_w))
+
+
+### for n
+help1 <- left_join(data1, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% 
+  group_by(TG) %>% 
+  summarise(N=n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+
+```{r export_2019}
+list_of_datasets <- list("results_alle" = results_alle, "results_weight" = results_weight)
+
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/19_PG_2019.xlsx")
+```
+
+
+
+
+# 2020
+```{r data_load_2020}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("pg07.Rda")
+load("kh11.Rda")
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2020.xlsx",3) 
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2020.xlsx",9) 
+```
+
+
+Vorbereitung KH-Daten
+```{r kh_prep_2020, warning= FALSE}
+# nur vollstationäre Fälle behalten
+kh11a<- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg == "01")
+
+#überschneidende Hospitalisierungen verbinden
+kh11a$KH_BEGINN_DAT <- ymd(kh11a$KH_BEGINN_DAT)
+kh11a$KH_ENDE_DAT <- ymd(kh11a$KH_ENDE_DAT)
+
+kh11a <- kh11a %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+kh11b<- kh11a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+# Klinikdaten für merge mit Pflegegeld vorbereiten (rename und select)
+kh11c <- kh11b %>% 
+  mutate(LEISTUNG_VON = KH_BEGINN_DAT2,
+         LEISTUNG_BIS = KH_ENDE_DAT2,
+         GEBPOS_KURZ_NEU = "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, GEBPOS_KURZ_NEU)
+```
+
+Vorbereitung Daten Pflegegeld 1
+```{r, include=FALSE}
+pg07$LEISTUNG_VON<- ymd(pg07$LEISTUNG_VON)
+pg07$LEISTUNG_BIS<- ymd(pg07$LEISTUNG_BIS)
+
+# Datensatz für Analysen erstellen
+help1a <- pg07%>% arrange(V_ID) %>% 
+  filter(GEBPOS_KURZ_NEU=="Geld")
+
+# ID für Zahlungen erstellen
+help1 <- help1a %>% mutate(pg_id=row_number())
+```
+
+
+Exklusion Pflegegeld
+```{r, include=FALSE}
+# # Exklusion ab bestimmter Höhe, 2000 €
+# check <- help1 %>% filter(ZAHLBETRAG>2000 | ZAHLBETRAG<(-2000))
+# 
+# # nach ID zusammenfassen
+# check2 <- check %>% 
+#   group_by(V_ID) %>% 
+#   summarise(n = n()) %>% 
+#   mutate(exkl = 1)
+# 
+# # # save IDs für Auschluss
+# # ausschluss_pg <- check2 %>% select(V_ID,exkl)
+# # setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten")
+# # write.xlsx(ausschluss_pg, file = "ausschluss_pg.xlsx")
+```
+
+
+Vorbereitung Daten Pflegegeld 1
+```{r, include=FALSE}
+# Daten mit Hospitalisierungen (row_bind)  verbinden  
+help2 <- bind_rows(help1, kh11c)
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen (getrennt nach ID für Pflegegeld)
+data3a <- help2 %>%
+  # create sequence of days between start and end
+  mutate(day = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>% 
+  # unnest data
+  unnest(cols = c(day)) %>%                                                       
+  group_by(V_ID,GEBPOS_KURZ_NEU,pg_id, day)
+
+data3a2 <- data3a %>% 
+  arrange(V_ID) %>% 
+  ungroup()
+
+# einheitlichen Indikator erstellen
+data3b <- data3a2 %>%
+  mutate(geld = if_else(GEBPOS_KURZ_NEU=="Geld", 1, 0),
+         kh= if_else(GEBPOS_KURZ_NEU=="KH", 1, 0))
+
+# für jede group_by Kombi prüfen ob an bestimmten Tag Pflegeld und/oder Hospitalisierung
+data3c <- data3b %>% 
+  group_by(V_ID,  day, pg_id) %>% 
+  summarise(geld = max(geld),
+            kh = max(kh))
+
+# nur Tage mit Pflegegeld und ohne Hospitalisierung behalten
+data3d <- data3c %>% 
+  filter(!(kh == 1)) %>% 
+  filter(geld == 1)
+
+# gefilterte Daten mit Pflegegeld-Zahlungen verbinden (um nun Kosten pro verbleibendem Tag zu berechnen)
+data3e <- left_join(help1, data3d , by=c("V_ID","pg_id"))
+
+data3e <- data3e %>% 
+  group_by(V_ID, pg_id) %>% 
+  mutate(tage_mit_leistung = n(),
+         zahlung_pro_leistungstag = ZAHLBETRAG / tage_mit_leistung) #%>% 
+  #dplyr::select(-c(V_PFLEGEGRAD,TG))
+
+# Daten verbinden (double check und um Stammdaten zu erhalten)
+data4a <- left_join(data1, data3e,by=("V_ID"))  
+data4 <- data4a  %>% 
+  filter(START_DATE<=day & END_DATE>=day)
+
+data4 <- data4 %>% 
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD)) 
+
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
+```
+
+
+## Leistung nach ZG und TG
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1  %>% 
+  group_by(V_ID, TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID","TG")) %>% 
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by(TG, .drop = FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+             oKH_Tage = sum(oKH_Tage))
+
+### auf ID-Basis 
+data4_zg3_id <- data4  %>%  
+  group_by(V_ID,TG) %>%  
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_IN_Pgeld = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>% 
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_ID = sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2, data4_zg3_id, by=c("TG")) %>% 
+  mutate(n_noIN__Pgeld = n_ID - n_IN_Pgeld )
+
+# Gesamtkosten
+data4_zg3_kosten <- data4  %>% 
+  group_by(TG, .drop = FALSE) %>%
+  summarise(SUM_Pgeld = sum(zahlung_pro_leistungstag))
+
+
+### Kosten pro ID 
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG")) # %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_kosten, by=c("TG")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle <- data4_zg3_b %>% 
+  mutate(SUM_Pgeld_jahr = SUM_Pgeld * 365 / oKH_Tage
+         #,proz_Pgeld= n_IN_Pgeld/n_ID
+  )
+```
+
+
+## Leistung nach ZG, PG und TG
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1  %>%  
+  group_by(V_ID, V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER)
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID", "V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>% 
+    mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by(V_PFLEGEGRAD,TG,V_ALTER, tod, .drop=FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+             oKH_Tage = sum(oKH_Tage))
+
+### auf ID-Basis 
+data4_zg3_id <- data4  %>% 
+  group_by(V_ID,V_PFLEGEGRAD, TG,V_ALTER, tod) %>%  
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(n_IN_Pgeld = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(n_ID= sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>% 
+  mutate(n_IN_Pgeld = if_else(is.na(n_IN_Pgeld), 0, n_IN_Pgeld),
+         n_noIN__Pgeld = n_ID - n_IN_Pgeld)
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4  %>% 
+  group_by(V_PFLEGEGRAD, TG, V_ALTER, tod) %>%
+  summarise(SUM_Pgeld = sum(zahlung_pro_leistungstag))
+
+
+### Kosten pro ID 
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_kosten, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w <- data4_zg3_b %>% 
+  mutate(SUM_Pgeld_jahr= SUM_Pgeld*365/oKH_Tage
+         #,proz_Pgeld= n_IN_Pgeld/n_ID
+  )
+```
+
+
+```{r wichtung_2020}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>%
+  group_by(TG) %>% 
+  summarise(days_tg = sum(oKH_Tage))
+
+# mit Ergebnise verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG == "TG1") %>% 
+  mutate(weight = oKH_Tage/days_tg) %>% 
+  ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(SUM_Pgeld_jahr_w = SUM_Pgeld_jahr * weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG) %>% 
+ filter(weight > 0) %>% 
+  summarise(oKH_Tage = sum(oKH_Tage),
+            SUM_Pgeld_jahr = sum(SUM_Pgeld_jahr_w))
+
+
+### for n
+help1 <- left_join(data1, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% 
+  group_by(TG) %>% 
+  summarise(N=n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+
+```{r export_2020}
+list_of_datasets <- list("results_alle" = results_alle, "results_weight" = results_weight)
+
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/19_PG_2020.xlsx")
+```
+
+
+
+# 2021
+```{r data_load_2021}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("pg07.Rda")
+load("kh11.Rda")
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2021.xlsx",3) 
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2021.xlsx",9) 
+```
+
+
+Vorbereitung KH-Daten
+```{r kh_prep_2021, warning= FALSE}
+# nur vollstationäre Fälle behalten
+kh11a<- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg == "01")
+
+#überschneidende Hospitalisierungen verbinden
+kh11a$KH_BEGINN_DAT <- ymd(kh11a$KH_BEGINN_DAT)
+kh11a$KH_ENDE_DAT <- ymd(kh11a$KH_ENDE_DAT)
+
+kh11a <- kh11a %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+kh11b<- kh11a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+# Klinikdaten für merge mit Pflegegeld vorbereiten (rename und select)
+kh11c <- kh11b %>% 
+  mutate(LEISTUNG_VON = KH_BEGINN_DAT2,
+         LEISTUNG_BIS = KH_ENDE_DAT2,
+         GEBPOS_KURZ_NEU = "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, GEBPOS_KURZ_NEU)
+```
+
+Vorbereitung Daten Pflegegeld 1
+```{r, include=FALSE}
+pg07$LEISTUNG_VON<- ymd(pg07$LEISTUNG_VON)
+pg07$LEISTUNG_BIS<- ymd(pg07$LEISTUNG_BIS)
+
+# Datensatz für Analysen erstellen
+help1a <- pg07%>% arrange(V_ID) %>% 
+  filter(GEBPOS_KURZ_NEU=="Geld")
+
+# ID für Zahlungen erstellen
+help1 <- help1a %>% mutate(pg_id=row_number())
+```
+
+
+Exklusion Pflegegeld
+```{r, include=FALSE}
+# # Exklusion ab bestimmter Höhe, 2000 €
+# check <- help1 %>% filter(ZAHLBETRAG>2000 | ZAHLBETRAG<(-2000))
+# 
+# # nach ID zusammenfassen
+# check2 <- check %>% 
+#   group_by(V_ID) %>% 
+#   summarise(n = n()) %>% 
+#   mutate(exkl = 1)
+# 
+# # # save IDs für Auschluss
+# # ausschluss_pg <- check2 %>% select(V_ID,exkl)
+# # setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten")
+# # write.xlsx(ausschluss_pg, file = "ausschluss_pg.xlsx")
+```
+
+
+Vorbereitung Daten Pflegegeld 1
+```{r, include=FALSE}
+# Daten mit Hospitalisierungen (row_bind)  verbinden  
+help2 <- bind_rows(help1, kh11c)
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen (getrennt nach ID für Pflegegeld)
+data3a <- help2 %>%
+  # create sequence of days between start and end
+  mutate(day = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>% 
+  # unnest data
+  unnest(cols = c(day)) %>%                                                       
+  group_by(V_ID,GEBPOS_KURZ_NEU,pg_id, day)
+
+data3a2 <- data3a %>% 
+  arrange(V_ID) %>% 
+  ungroup()
+
+# einheitlichen Indikator erstellen
+data3b <- data3a2 %>%
+  mutate(geld = if_else(GEBPOS_KURZ_NEU=="Geld", 1, 0),
+         kh= if_else(GEBPOS_KURZ_NEU=="KH", 1, 0))
+
+# für jede group_by Kombi prüfen ob an bestimmten Tag Pflegeld und/oder Hospitalisierung
+data3c <- data3b %>% 
+  group_by(V_ID,  day, pg_id) %>% 
+  summarise(geld = max(geld),
+            kh = max(kh))
+
+# nur Tage mit Pflegegeld und ohne Hospitalisierung behalten
+data3d <- data3c %>% 
+  filter(!(kh == 1)) %>% 
+  filter(geld == 1)
+
+# gefilterte Daten mit Pflegegeld-Zahlungen verbinden (um nun Kosten pro verbleibendem Tag zu berechnen)
+data3e <- left_join(help1, data3d , by=c("V_ID","pg_id"))
+
+data3e <- data3e %>% 
+  group_by(V_ID, pg_id) %>% 
+  mutate(tage_mit_leistung = n(),
+         zahlung_pro_leistungstag = ZAHLBETRAG / tage_mit_leistung) #%>% 
+  #dplyr::select(-c(V_PFLEGEGRAD,TG))
+
+# Daten verbinden (double check und um Stammdaten zu erhalten)
+data4a <- left_join(data1, data3e,by=("V_ID"))  
+data4 <- data4a  %>% 
+  filter(START_DATE<=day & END_DATE>=day)
+
+data4 <- data4 %>% 
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD)) 
+
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
+```
+
+
+## Leistung nach ZG und TG
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1  %>% 
+  group_by(V_ID, TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer))
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID","TG")) %>% 
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by(TG, .drop = FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+             oKH_Tage = sum(oKH_Tage))
+
+### auf ID-Basis 
+data4_zg3_id <- data4  %>%  
+  group_by(V_ID,TG) %>%  
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_IN_Pgeld = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>% 
+  group_by(V_ID,TG) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_ID = sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2, data4_zg3_id, by=c("TG")) %>% 
+  mutate(n_noIN__Pgeld = n_ID - n_IN_Pgeld )
+
+# Gesamtkosten
+data4_zg3_kosten <- data4  %>% 
+  group_by(TG, .drop = FALSE) %>%
+  summarise(SUM_Pgeld = sum(zahlung_pro_leistungstag))
+
+
+### Kosten pro ID 
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("TG")) # %>%  relocate(ZG, .before = oKH_Tage) 
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_kosten, by=c("TG")) %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle <- data4_zg3_b %>% 
+  mutate(SUM_Pgeld_jahr = SUM_Pgeld * 365 / oKH_Tage
+         #,proz_Pgeld= n_IN_Pgeld/n_ID
+  )
+```
+
+
+## Leistung nach ZG, PG und TG
+```{r}
+# Data 1 vorbereiten
+data1a_zg <- data1  %>%  
+  group_by(V_ID, V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER)
+
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID", "V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>% 
+    mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by(V_PFLEGEGRAD,TG,V_ALTER, tod, .drop=FALSE) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+             oKH_Tage = sum(oKH_Tage))
+
+### auf ID-Basis 
+data4_zg3_id <- data4  %>% 
+  group_by(V_ID,V_PFLEGEGRAD, TG,V_ALTER, tod) %>%  
+  summarise(Fall_ja_id = 1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(n_IN_Pgeld = sum(Fall_ja_id))
+
+data4_zg3_id2 <- data1  %>%  
+  group_by(V_ID,V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(id_ja = 1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(n_ID= sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>% 
+  mutate(n_IN_Pgeld = if_else(is.na(n_IN_Pgeld), 0, n_IN_Pgeld),
+         n_noIN__Pgeld = n_ID - n_IN_Pgeld)
+
+# Gesamtkosten 
+data4_zg3_kosten <- data4  %>% 
+  group_by(V_PFLEGEGRAD, TG, V_ALTER, tod) %>%
+  summarise(SUM_Pgeld = sum(zahlung_pro_leistungstag))
+
+
+### Kosten pro ID 
+# alles verbinden
+data4_zg3_a <- left_join(data1a_zg3_verweil, data4_zg3_id3, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))
+
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_kosten, by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))  %>% 
+  mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w <- data4_zg3_b %>% 
+  mutate(SUM_Pgeld_jahr= SUM_Pgeld*365/oKH_Tage
+         #,proz_Pgeld= n_IN_Pgeld/n_ID
+  )
+```
+
+
+```{r wichtung_2021}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>%
+  group_by(TG) %>% 
+  summarise(days_tg = sum(oKH_Tage))
+
+# mit Ergebnise verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG == "TG1") %>% 
+  mutate(weight = oKH_Tage/days_tg) %>% 
+  ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(SUM_Pgeld_jahr_w = SUM_Pgeld_jahr * weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG) %>% 
+ filter(weight > 0) %>% 
+  summarise(oKH_Tage = sum(oKH_Tage),
+            SUM_Pgeld_jahr = sum(SUM_Pgeld_jahr_w))
+
+
+### for n
+help1 <- left_join(data1, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% 
+  group_by(TG) %>% 
+  summarise(N=n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+
+```{r export_2021}
+list_of_datasets <- list("results_alle" = results_alle, "results_weight" = results_weight)
+
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/19_PG_2021.xlsx")
+```
+
+
