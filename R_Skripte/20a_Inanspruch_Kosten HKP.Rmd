@@ -1,0 +1,472 @@
+---
+title: "Deskription Gruppen"
+author: "ldp"
+date: "2022/08/16"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+library(epiDisplay)
+library(tidyverse) #alle tidy-packages auf einmal
+library(lubridate)
+library(stringr)
+library(psych)
+library(dplyr)
+library(dlookr)
+library(table1)
+library(janitor)
+library(openxlsx)
+library(stringr)
+library(readxl)
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten")
+
+load("data11_neu.Rda")
+load("table08.Rda")
+load("table09.Rda")
+load("table11.Rda")
+data1 <- data11_neu
+data11 <- NULL
+data2 <- table08
+data2a <- table09
+table12 <- NULL
+data10 <- table11
+
+table1 <- read_excel("O:\\U5279\\Routinedaten\\Abschlussdatenlieferung20_21\\Ergebnisse\\Excel\\01_PG.xlsx")
+table2 <- read_excel("O:\\U5279\\Routinedaten\\Abschlussdatenlieferung20_21\\Ergebnisse\\Excel\\05_TG_PG.xlsx")
+table3 <- read_excel("O:\\U5279\\Routinedaten\\Abschlussdatenlieferung20_21\\Ergebnisse\\Excel\\01a_TG.xlsx")
+
+
+verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Ergebnisse/Excel/13_KH_Verweildauer.xlsx",3)  
+verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Ergebnisse/Excel/13_KH_Verweildauer.xlsx",9) 
+```
+
+Auschluss nach HKP-Daten
+```{r}
+table08$HKP_FALLNR <- as.character(table08$HKP_FALLNR)
+table09$HKP_FALLNR <- as.character(table09$HKP_FALLNR)
+
+check1 <- left_join(table08, table09, by=c("V_ID","HKP_FALLNR"))
+
+check2 <- check1 %>%
+  mutate(HKP_GOP_12 = substr(HKP_GOP, 0, 2),
+         HKP_GOP_3 = substr(HKP_GOP, 3, 3),
+         HKP_GOP_456 = substr(HKP_GOP, 4, 6))
+#Intensiv GOPs filtern
+check3 <-check2 %>%  filter(HKP_GOP_456=="852"|HKP_GOP_456=="853"|HKP_GOP_456=="854"|HKP_GOP_456=="855"|HKP_GOP_456=="856"|                             HKP_GOP_456=="857"|HKP_GOP_456=="858"|HKP_GOP_456=="859"|HKP_GOP_456=="860"|HKP_GESKOSTEN<(-100)#|
+                              # HKP_GOP_456=="A20"|HKP_GOP_456=="A21"|HKP_GOP_456=="A22"|HKP_GOP_456=="A23"|HKP_GOP_456=="A23"|
+                              # HKP_GOP_456=="A24"|HKP_GOP_456=="A25"|HKP_GOP_456=="A26"|HKP_GOP_456=="A27"|HKP_GOP_456=="A28"|
+                              # HKP_GOP_456=="A29"|HKP_GOP_456=="A30"|HKP_GOP_456=="A31"|HKP_GOP_456=="A32"|HKP_GOP_456=="A33"|
+                              # HKP_GOP_456=="A33"|HKP_GOP_456=="A34"|HKP_GOP_456=="A35"|HKP_GOP_456=="A36"|HKP_GOP_456=="A37"|
+                              # HKP_GOP_456=="A38"|HKP_GOP_456=="A39"|HKP_GOP_456=="A40"|HKP_GOP_456=="A41"|HKP_GOP_456=="A42"|
+                              # HKP_GOP_456=="A43"|HKP_GOP_456=="A43"|HKP_GOP_456=="A44"|HKP_GOP_456=="A45"|HKP_GOP_456=="A46"|
+                              # HKP_GOP_456=="A47"|HKP_GOP_456=="A48"|HKP_GOP_456=="A49"|
+                              # HKP_GOP_456=="A50"|HKP_GOP_456=="A51"|HKP_GOP_456=="A52"|HKP_GOP_456=="A53"|
+                              # HKP_GOP_456=="A53"|HKP_GOP_456=="A54"|HKP_GOP_456=="A55"|HKP_GOP_456=="A56"|HKP_GOP_456=="A57"|
+                              # HKP_GOP_456=="A58"|HKP_GOP_456=="A59"|HKP_GOP_456=="A60"|HKP_GOP_456=="A61"|HKP_GOP_456=="A62"|
+                              # HKP_GOP_456=="A63"|HKP_GOP_456=="A63"|HKP_GOP_456=="A64"|HKP_GOP_456=="A65"|HKP_GOP_456=="A66"
+                            )
+
+# nach ID zusammenfassen
+check4 <- check3 %>% group_by(V_ID) %>% 
+  summarise(n=n()) %>% 
+  mutate(exkl=1)
+
+# save IDs für Auschluss
+ausschluss_hkp <- check4 %>% select(V_ID,exkl)
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten")
+write.xlsx(ausschluss_hkp, file = "ausschluss_hkp.xlsx")
+```
+
+
+
+Vorebereitung KH-Daten
+```{r, warning= FALSE}
+
+# KH-Daten mit Stammdaten verbinden
+# nur vollstationär behalten
+data10a<- data10  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg=="01")
+
+#überschneidende Hospitalisierungen verbinden
+data10a$KH_BEGINN_DAT <- as.Date(data10a$KH_BEGINN_DAT, tryFormats = c("%Y-%m-%d"))
+data10a$KH_ENDE_DAT <- as.Date(data10a$KH_ENDE_DAT, tryFormats = c("%Y-%m-%d"))
+data10a <- data10a %>% filter(!(is.na(KH_ENDE_DAT)))
+
+data10b<- data10a%>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) >
+                              cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), KH_ENDE_DAT2 = max(KH_ENDE_DAT))
+
+#Klinikdaten für merge mit HM-Daten vorbereiten (rename und select)
+data10c <- data10b %>% 
+  mutate(LEISTUNG_VON=KH_BEGINN_DAT2,
+         LEISTUNG_BIS=KH_ENDE_DAT2,
+         origin= "KH") %>% 
+  dplyr::select(V_ID,LEISTUNG_VON, LEISTUNG_BIS, origin) #%>%  slice_head(n = 1000) 
+```
+
+Data prep and save
+```{r, include = FALSE}
+data2$HKP_DATUM <- as.Date(data2$HKP_DATUM, tryFormats = c("%Y-%m-%d"))
+
+data2$LEISTUNG_VON <- data2$HKP_DATUM 
+data2$LEISTUNG_BIS <- data2$HKP_DATUM 
+data2$HKP_FALLNR <- as.character(data2$HKP_FALLNR)
+
+# Datensatz für Verbindung erstellen (slice für schnelleres Skript)
+help1 <- data2 %>% arrange(V_ID) #%>% slice_head(n = 10000) 
+
+# negative HKP-Kosten ausgeschlossen (s. Skript 14b)
+help1a <- help1 %>% filter(HKP_GESKOSTEN<0)
+
+# IDs mit hohen Kosten filtern
+check <- help1 %>% filter(HKP_GESKOSTEN>500)
+
+help1b <- help1a %>% group_by(V_ID, HKP_FALLNR) %>% 
+  summarise(n=n())
+
+help1c <- left_join(help1, help1b, by=c("V_ID", "HKP_FALLNR"))
+
+help1d <- help1c %>% filter(is.na(n)) %>% dplyr::select(-c("n"))
+
+# Variable für Kostenhöhe hinzugefügt
+help2 <- help1d %>% mutate(origin="HKP",
+                          kostenkat= if_else(HKP_GESKOSTEN<(-100), "high",
+                                             if_else((HKP_GESKOSTEN>100), "high","low")))
+
+# Daten mit Hospitalisierungen (row_bind) und Stammdaten verbinden (filtern von fehlenden Beginn/Ende bzw ohne Match)
+help3 <- bind_rows(help2,data10c )
+data3 <- left_join(data1,help3,by=("V_ID")) %>% filter(!(is.na(LEISTUNG_VON))) %>% filter(!(is.na(LEISTUNG_BIS))) 
+
+# für jeden Tag eines Leistungserhaltes Zeile erstellen 
+data3a <- data3 %>%
+  mutate(day = map2(LEISTUNG_VON, LEISTUNG_BIS, ~seq(.x, .y, "day"))) %>%  # create sequence of days between start and end
+  unnest(cols = c(day)) %>%                                                       # unnest data
+  group_by(V_ID,V_PFLEGEGRAD, TG,origin, day)
+
+
+data3a2 <- data3a %>% arrange(V_ID) %>% ungroup()# %>%slice_head(n = 10000) 
+
+# nur relevante Tage  behalten (Filter vor allem notwendig wenn mehrere TGs und PG bei einer Person um passendes Intervall zu matchen, teilweise Leistungen nach Todesdatum)
+data3b <- data3a2 %>%
+  filter(START_DATE<=day & END_DATE>=day) %>% 
+  mutate(HKP= if_else(origin=="HKP",1,0),
+         kh= if_else(origin=="KH",1,0),
+         HKP_low= if_else(kostenkat=="low",1,0),
+         HKP_high= if_else(kostenkat=="high",1,0))
+
+# für jede group_by Kombi prüfen ob an bestimmten Tag HM-leistung und/oder Hospitalisierung
+data3c <- data3b %>% 
+  mutate(HKP_GESKOSTEN= if_else(is.na(HKP_GESKOSTEN),0,HKP_GESKOSTEN ),
+         HKP_low= if_else(is.na(HKP_low),0,HKP_low ),
+         HKP_high= if_else(is.na(HKP_high),0,HKP_high )) %>% 
+  group_by(V_ID, V_PFLEGEGRAD, TG, day) %>% 
+  summarise(HKP=sum(HKP),
+            kh=max(kh),
+            HKP_low= max(HKP_low),
+            HKP_high= max(HKP_high),
+            Kosten = sum(HKP_GESKOSTEN))
+
+# nur HKP-Leistung ohne KH behalten
+data3d <- data3c %>% filter(!(kh==1)) %>% mutate(TG=as.factor(TG), V_PFLEGEGRAD=as.factor(V_PFLEGEGRAD)) 
+```
+
+Verbindung mit Gesamtdaten
+```{r, include = FALSE}
+data1 <- data1 %>%   mutate(TG=as.factor(TG), V_PFLEGEGRAD=as.factor(V_PFLEGEGRAD))
+
+# Stammdaten mit Bezugsintervallen verbinden
+data3e <- left_join(data1,data3d,by=c("V_ID", "V_PFLEGEGRAD","TG"))
+
+# nur Zeilen behalten die Stammdatenintervall und Bezugstag einschließen
+data4 <- data3e %>% filter(!(day>END_DATE | day<START_DATE)) %>% rename(HKP_DATUM=day)
+
+data4 <- data4 %>%   mutate(TG=as.factor(TG), V_PFLEGEGRAD=as.factor(V_PFLEGEGRAD)) 
+
+
+```
+
+## Leistung nach ZG und TG
+```{r}
+
+# Data 1 vorbereiten
+data1a_zg3 <- data1 %>%  group_by(V_ID, TG) %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+data1a_zg_sum <- data1  %>% group_by(TG) %>% 
+  summarise(VZ_tage_sum = sum(intervalldauer ))
+
+data1a_zg3_TG <- left_join(data1a_zg3, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>% 
+  mutate(Verweildauer= if_else(is.na(Verweildauer),0,Verweildauer ),
+         oKH_Tage=VZ_tage- Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3_TG %>% 
+  group_by(TG) %>%
+  summarise(oKH_Tage = sum(oKH_Tage))
+
+# auf ID-Basis 
+
+data4_zg3_id <- data4 %>%  group_by(V_ID,TG) %>% 
+  summarise(HKP_ja_id = 1) %>% 
+  group_by(TG) %>% 
+  summarise(n_IN_HKP = sum(HKP_ja_id))
+
+data4_zg3_id2 <- data1 %>%  group_by(V_ID,TG) %>%
+  summarise(id_ja = 1) %>%  group_by(TG) %>%
+  summarise(n_ID= sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c( "TG")  ) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(n_noIN_HKP=n_ID- n_IN_HKP) 
+
+# Gesamttage mit HM-Leistung und Tage ohne HM-Leistung 
+data4_zg3_tage1 <- data4 %>%  group_by(V_ID,TG, HKP_DATUM) %>% 
+  summarise(ID_ja = 1) %>% group_by(TG ) %>% 
+  summarise(IN_Tage_HKP= sum(ID_ja))
+
+data4_zg3_tage2<-  left_join(data1a_zg3_verweil,data4_zg3_tage1, by=c("TG")  ) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage_HKP= oKH_Tage -IN_Tage_HKP) %>% 
+  dplyr::select(-c(oKH_Tage))
+
+# alle Kosten
+data4_zg3_kosten1 <- data4 %>%  group_by( TG) %>%  
+  summarise( SUM_HKP_GesKosten = sum(Kosten))
+
+# alles verbinden
+data4_zg3_a1 <- left_join(data1a_zg_sum,data1a_zg3_verweil, by=c("TG") )
+data4_zg3_a <- left_join(data4_zg3_a1, data4_zg3_id3, by=c("TG") ) #%>%  relocate(ZG, .before = oKH_Tage) 
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG")  )   
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten1, by=c("TG")  )%>% mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle <- data4_zg3_c %>% mutate(proz_n_IN_HKP= n_IN_HKP/n_ID,
+                                       IN_Tage_HKP_jahr= IN_Tage_HKP*365/oKH_Tage,
+                                       HKP_GesKosten_jahr= SUM_HKP_GesKosten*365/oKH_Tage)
+# relevante Variablen für Tabelle
+results_alle <- results_alle %>% dplyr::select(TG, n_ID, VZ_tage_sum,oKH_Tage, n_IN_HKP,IN_Tage_HKP, proz_n_IN_HKP,IN_Tage_HKP_jahr,
+                                               HKP_GesKosten_jahr)
+
+```
+
+### Kostenanteil für einzelne HKPs nach TG
+```{r}
+data5 <- data3b %>% 
+  mutate(HKP_GESKOSTEN= if_else(is.na(HKP_GESKOSTEN),0,HKP_GESKOSTEN )) %>% 
+  group_by(V_ID,HKP_FALLNR, V_PFLEGEGRAD, TG, day) %>% 
+  summarise(HKP=sum(HKP),
+            kh=max(kh),
+            Kosten = sum(HKP_GESKOSTEN))
+
+# nur HKP-Leistung ohne KH behalten
+data5a <- data5 %>% filter(!(kh==1)) %>% mutate(TG=as.factor(TG), V_PFLEGEGRAD=as.factor(V_PFLEGEGRAD)) 
+
+# Stammdaten mit Bezugsintervallen verbinden
+data5b <- left_join(data1,data5a,by=c("V_ID", "V_PFLEGEGRAD","TG"))
+
+# nur Zeilen behalten die Stammdatenintervall und Bezugstag einschließen
+data5c<- data5b %>% filter(!(day>END_DATE | day<START_DATE)) %>% rename(HKP_DATUM=day)
+
+data5c <- data5c %>%   mutate(TG=as.factor(TG), V_PFLEGEGRAD=as.factor(V_PFLEGEGRAD)) 
+
+# nur HKP_FallNr behalten, die nur in einer TG liegen (teilweise selbe HKP-FallNR in 2 Intervallen)
+data5d <- data5c %>% group_by (V_ID,HKP_FALLNR,  TG) %>% 
+  summarise(n=1) %>% ungroup() %>% group_by(HKP_FALLNR) %>% 
+  summarise(n2=n())
+
+# wieder mit vollem Datensatz verbinden 
+data5e <- left_join(data5c,data5d, by=("HKP_FALLNR"))
+data5e <- data5e %>% filter(n2==1)
+data5f <- data5e %>% group_by(V_ID,TG, HKP_FALLNR) %>% 
+  summarise(Sum_Kosten=sum(Kosten))
+
+
+data5g <- left_join(data5f,table09, by=(c("V_ID","HKP_FALLNR")))
+
+data5g$HKP_GOP_N <- as.numeric(data5g$HKP_GOP_N)
+
+# Anteilige Kosten pro GOP (grobe Operationalisierung)
+data5g2 <- data5g %>% group_by(HKP_FALLNR) %>%
+  mutate(sum_HKP_GOP_N = sum(HKP_GOP_N),
+         anteil_GOP= HKP_GOP_N/sum_HKP_GOP_N,
+         anteil_Kosten= anteil_GOP*Sum_Kosten)
+
+# Anzahl der Gesamt-GOPs pro TG
+data5h <- data5g2 %>% group_by(TG) %>% 
+  summarise(GOP_Total=sum(HKP_GOP_N),
+            Kosten_total= sum(anteil_Kosten))
+
+data5i <- data5g2 %>% group_by(TG,HKP_GOP ) %>% 
+  summarise(N_GOP=sum(HKP_GOP_N),
+            Kosten_GOP= sum(anteil_Kosten))
+
+data5j <- left_join(data5i, data5h, by=c("TG")) %>% 
+  mutate(per_GOP_TG=N_GOP*100/GOP_Total,
+         per_Kosten=Kosten_GOP*100/Kosten_total)
+
+# Inanspruch
+data6_tg1 <- data5j %>% filter(TG=="TG1") %>% 
+  dplyr::select(TG,HKP_GOP,N_GOP,GOP_Total,per_GOP_TG )
+data6_tg2 <- data5j %>% filter(TG=="TG2") %>% 
+  dplyr::select(TG,HKP_GOP,N_GOP,GOP_Total,per_GOP_TG )
+data6_tg3 <- data5j %>% filter(TG=="TG3")%>% 
+  dplyr::select(TG,HKP_GOP,N_GOP,GOP_Total,per_GOP_TG )
+data6_tg4 <- data5j %>% filter(TG=="TG4")%>% 
+  dplyr::select(TG,HKP_GOP,N_GOP,GOP_Total,per_GOP_TG )
+data6_tg5 <- data5j %>% filter(TG=="TG5")%>% 
+  dplyr::select(TG,HKP_GOP,N_GOP,GOP_Total,per_GOP_TG )
+
+data6a <- full_join(data6_tg1,data6_tg2, by=c("HKP_GOP"))
+data6b <- full_join(data6a,data6_tg3, by=c("HKP_GOP"))
+data6c <- full_join(data6b,data6_tg4, by=c("HKP_GOP"))
+data6d <- full_join(data6c,data6_tg5, by=c("HKP_GOP"))
+hkp_inanspruch<- data6d
+
+# Kosten 
+data6_tg1 <- data5j %>% filter(TG=="TG1") %>% 
+  dplyr::select(TG,HKP_GOP,Kosten_GOP,Kosten_total,per_Kosten  )
+data6_tg2 <- data5j %>% filter(TG=="TG2") %>% 
+  dplyr::select(TG,HKP_GOP,Kosten_GOP,Kosten_total,per_Kosten  )
+data6_tg3 <- data5j %>% filter(TG=="TG3")%>% 
+  dplyr::select(TG,HKP_GOP,Kosten_GOP,Kosten_total,per_Kosten  )
+data6_tg4 <- data5j %>% filter(TG=="TG4")%>% 
+  dplyr::select(TG,HKP_GOP,Kosten_GOP,Kosten_total,per_Kosten  )
+data6_tg5 <- data5j %>% filter(TG=="TG5")%>% 
+  dplyr::select(TG,HKP_GOP,Kosten_GOP,Kosten_total,per_Kosten  )
+
+data6a <- full_join(data6_tg1,data6_tg2, by=c("HKP_GOP"))
+data6b <- full_join(data6a,data6_tg3, by=c("HKP_GOP"))
+data6c <- full_join(data6b,data6_tg4, by=c("HKP_GOP"))
+data6d <- full_join(data6c,data6_tg5, by=c("HKP_GOP"))
+hkp_kosten<- data6d
+
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Ergebnisse/Excel/")
+list_of_datasets <- list("hkp_inanspruch" =hkp_inanspruch,"hkp_kosten" =hkp_kosten)
+
+write.xlsx(list_of_datasets, file = "20a_Inanspruch_Kosten_einzelneHKPs.xlsx")
+```
+
+
+
+## Leistung nach TG,V_PFLEGEGRAD,V_ALTER, tod
+```{r}
+
+# Data 1 vorbereiten
+data1a_zg3 <- data1 %>%  group_by(V_ID,TG,V_PFLEGEGRAD,V_ALTER, tod)  %>% 
+  summarise(VZ_tage = sum(intervalldauer ))
+
+data1a_zg_sum <- data1  %>% group_by(TG,V_PFLEGEGRAD,V_ALTER, tod) %>% 
+  summarise(VZ_tage_sum = sum(intervalldauer ))
+
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+data1a_zg3_TG <- left_join(data1a_zg3, verweildauer_pg_TG_tod, by=c("V_ID","TG","V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  mutate(Verweildauer= if_else(is.na(Verweildauer),0,Verweildauer ),
+         oKH_Tage=VZ_tage- Verweildauer )
+
+# Tage ohne KH_Aufenthalt 
+data1a_zg3_verweil <- data1a_zg3_TG %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod) %>%
+  summarise(oKH_Tage = sum(oKH_Tage))
+
+# auf ID-Basis 
+
+data4_zg3_id <- data4 %>%  group_by(V_ID,V_PFLEGEGRAD,TG,V_ALTER, tod) %>% 
+  summarise(HKP_ja_id = 1) %>% 
+  group_by(V_PFLEGEGRAD,TG,V_ALTER, tod) %>% 
+  summarise(n_IN_HKP = sum(HKP_ja_id))
+
+data4_zg3_id2 <- data1 %>%  group_by(V_ID,V_PFLEGEGRAD,TG,V_ALTER, tod) %>% 
+  summarise(id_ja = 1) %>%  group_by(V_PFLEGEGRAD,TG,V_ALTER, tod) %>%
+  summarise(n_ID= sum(id_ja))
+  
+data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c( "V_PFLEGEGRAD", "TG","V_ALTER", "tod")  ) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(n_noIN_HKP=n_ID- n_IN_HKP) 
+
+# Gesamttage mit HM-Leistung und Tage ohne HM-Leistung 
+data4_zg3_tage1 <- data4 %>%  group_by(V_ID,TG,V_PFLEGEGRAD, HKP_DATUM,V_ALTER, tod) %>% 
+  summarise(ID_ja = 1) %>% group_by(TG,V_PFLEGEGRAD,V_ALTER, tod ) %>% 
+  summarise(IN_Tage_HKP= sum(ID_ja))
+
+data4_zg3_tage2<-  left_join(data1a_zg3_verweil,data4_zg3_tage1, by=c("TG","V_PFLEGEGRAD","V_ALTER", "tod")  ) %>% 
+  mutate_all(~replace(., is.na(.), 0)) %>% 
+  mutate(noIN_Tage_HKP= oKH_Tage -IN_Tage_HKP) %>% 
+  dplyr::select(-c(oKH_Tage))
+
+# alle Kosten
+data4_zg3_kosten1 <- data4 %>%  group_by(TG,V_PFLEGEGRAD,V_ALTER, tod ) %>%  
+  summarise( SUM_HKP_GesKosten = sum(Kosten))
+
+
+# alles verbinden
+data4_zg3_a1 <- left_join(data1a_zg_sum,data1a_zg3_verweil, by=c("TG","V_PFLEGEGRAD", "V_ALTER", "tod") )
+data4_zg3_a <- left_join(data4_zg3_a1, data4_zg3_id3, by=c("TG","V_PFLEGEGRAD", "V_ALTER", "tod") ) #%>%  relocate(ZG, .before = oKH_Tage) 
+data4_zg3_b <- left_join(data4_zg3_a, data4_zg3_tage2, by=c("TG","V_PFLEGEGRAD" ,"V_ALTER", "tod")   )   
+data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten1, by=c("TG","V_PFLEGEGRAD" ,"V_ALTER", "tod")   ) %>% mutate_all(~replace(., is.na(.), 0)) 
+
+# Daten für Tabelle vorbereiten
+results_alle_w <- data4_zg3_c %>% mutate(proz_n_IN_HKP= n_IN_HKP/n_ID,
+                                       IN_Tage_HKP_jahr= IN_Tage_HKP*365/oKH_Tage,
+                                       HKP_GesKosten_jahr= SUM_HKP_GesKosten*365/oKH_Tage)
+
+# relevante Variablen für Tabelle
+results_alle_w <- results_alle_w %>% dplyr::select(TG, V_PFLEGEGRAD, V_ALTER, tod,n_ID, VZ_tage_sum, oKH_Tage, n_IN_HKP, proz_n_IN_HKP,IN_Tage_HKP_jahr,
+                                               HKP_GesKosten_jahr)
+```
+
+### Wichtung
+
+```{r}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_alle_w %>%  group_by(TG) %>% 
+  summarise(days_tg=sum(oKH_Tage))
+
+# mit Ergebnise verbinden 
+data5a <- left_join(results_alle_w, data5, by=c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% filter(TG=="TG1") %>% mutate(weight=oKH_Tage/days_tg) %>% ungroup() %>% 
+  dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% mutate(IN_Tage_HKP_jahr_w= IN_Tage_HKP_jahr*weight,
+                            HKP_GesKosten_jahr_w= HKP_GesKosten_jahr*weight)
+
+#finale Werte
+data7 <- data6b %>% group_by(TG) %>% 
+ filter(weight>0) %>% 
+  summarise(oKH_Tage=sum(oKH_Tage),
+           IN_Tage_HKP_jahr =sum(IN_Tage_HKP_jahr_w),
+           HKP_GesKosten_jahr =sum(HKP_GesKosten_jahr_w))
+
+# for n
+help1 <- left_join(data1,data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% filter(!(is.na(weight)))
+n_weight <- help1 %>% group_by(TG) %>% 
+  summarise(N=n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+# Export
+```{r}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Ergebnisse/Excel/")
+list_of_datasets <- list("results_alle" =results_alle,"results_weight" =results_weight)
+
+write.xlsx(list_of_datasets, file = "20_Inanspruch_Kosten_HKP1.xlsx")
+```
