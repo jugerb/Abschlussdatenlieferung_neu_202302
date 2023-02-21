@@ -602,16 +602,6 @@ data4 <- data4 %>%
          V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD)) 
 
 data4 <- data4 %>% arrange(V_ID) 
-
-
-#%>% slice_head(n = 100000) 
-# data4a <- data4 %>% arrange(V_ID) %>%slice_head(n = 20000) 
-# 
-# data4a <- data4a %>%  mutate(tage_bezug= rel_END_DATE-rel_START_DATE ) 
-# Zwischenspeicher 
-# save(data1,file="O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/Zwischenspeicher/PG/data1.Rda")
-# save(data4,file="O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/Zwischenspeicher/PG/data4.Rda")
-# save(final_zg,file="O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/Zwischenspeicher/PG/final_zg.Rda")
 ```
 
 
@@ -943,7 +933,6 @@ write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferu
 
 
 # 2021
-
 ```{r data_load_2021}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
 
@@ -1063,16 +1052,6 @@ data4 <- data4 %>%
          V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD)) 
 
 data4 <- data4 %>% arrange(V_ID) 
-
-
-#%>% slice_head(n = 100000) 
-# data4a <- data4 %>% arrange(V_ID) %>%slice_head(n = 20000) 
-# 
-# data4a <- data4a %>%  mutate(tage_bezug= rel_END_DATE-rel_START_DATE ) 
-# Zwischenspeicher 
-# save(data1,file="O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/Zwischenspeicher/PG/data1.Rda")
-# save(data4,file="O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/Zwischenspeicher/PG/data4.Rda")
-# save(final_zg,file="O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/Zwischenspeicher/PG/final_zg.Rda")
 ```
 
 
