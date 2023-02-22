@@ -26,7 +26,6 @@ intensiv_456 <- intensivgops$stellen456
 
 
 # 2019
-
 ```{r data_load_2019, warning=FALSE, message=FALSE}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
 
@@ -58,11 +57,11 @@ check2 <- check1 %>%
          HKP_GOP_3 = substr(HKP_GOP, 3, 3),
          HKP_GOP_456 = substr(HKP_GOP, 4, 6))
 
-# alle Ausschlussbedingungen, um Personen mit Intensvpflege zu entfernen
+# alle Ausschlussbedingungen, um Personen mit Intensivpflege zu entfernen
 check3 <- check2 %>% 
   filter(HKP_GOP_3 == 'A' | 
            HKP_GOP %in% intensiv_voll | 
-           HKP_GOP_456 %in% intensiv_voll | 
+           HKP_GOP_456 %in% intensiv_456 | 
            HKP_GESKOSTEN < (-100))
 
 # nach ID zusammenfassen
@@ -325,7 +324,7 @@ check2 <- check1 %>%
 check3 <- check2 %>% 
   filter(HKP_GOP_3 == 'A' | 
            HKP_GOP %in% intensiv_voll | 
-           HKP_GOP_456 %in% intensiv_voll | 
+           HKP_GOP_456 %in% intensiv_456 | 
            HKP_GESKOSTEN < (-100))
 
 # nach ID zusammenfassen
@@ -506,7 +505,7 @@ check2 <- check1 %>%
 check3 <- check2 %>% 
   filter(HKP_GOP_3 == 'A' | 
            HKP_GOP %in% intensiv_voll | 
-           HKP_GOP_456 %in% intensiv_voll | 
+           HKP_GOP_456 %in% intensiv_456 | 
            HKP_GESKOSTEN < (-100))
 
 # nach ID zusammenfassen
