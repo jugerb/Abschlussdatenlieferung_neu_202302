@@ -150,7 +150,7 @@ list_of_datasets <- list("verweildauer_zg3" = verweildauer_zg3,
 
 write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2019.xlsx")
 ```
-```{r descr_alle_2019, include = FALSE}
+```{r descr_alle_2019}
 # Dauer des Intervalls
 data1<- data1 %>% 
   mutate(intervalldauer = as.double(END_DATE - START_DATE +1),
@@ -204,7 +204,42 @@ label(data1b$V_PFLEGEGRAD) <- "Pflegegrad"
 table1(~ V_ALTER + tod + V_PFLEGEGRAD| TG, data=data1b)
 table1 <- table1(~ V_ALTER + tod + V_PFLEGEGRAD| TG, data=data1b)
 table1 <- as.data.frame(table1)
+```
 
+
+```{r descr2_alle_2019, include = FALSE}
+# Ausschluss Daten vor 2019-02-01
+data1e <- data1 %>% filter(END_DATE>"2019-01-31")
+data1e$START_DATE [data1e$START_DATE<"2019-02-01"] <-"2019-02-01" 
+
+data1e<- data1e %>% 
+  dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1))
+
+data1f<- data1e %>% group_by(V_ID) %>% 
+  arrange(START_DATE) %>% 
+  mutate(n=row_number())
+
+# nur erstes Intervall pro ID behalten
+table(data1f$n)
+data1g <- data1f %>% filter(n==1)
+
+data1g$V_ALTER<- 
+  factor(data1g$V_ALTER , 
+         levels=c(3,4,5,6,7,8,9),
+         labels=c("60-64","65-69","70-74","75-79","80-84","85-89","90 und mehr" ))
+
+label(data1g$V_ALTER) <- "Altersgruppe"
+
+data1g$tod <- 
+  factor(data1g$tod , 
+         levels=c(0,1),
+         labels=c("nein", "ja"))
+
+label(data1g$tod) <- "Tod"
+label(data1g$V_PFLEGEGRAD) <- "Pflegegrad"
+
+table1_feb <-table1(~ V_ALTER + tod+ V_PFLEGEGRAD | TG, data=data1g)
+table1_feb <- as.data.frame(table1_feb)
 
 
 
@@ -227,10 +262,10 @@ data1d <- data1d %>% dplyr::select(V_ID,V_PFLEGEGRAD ) %>%
 # mit vorherigem Datensatz verbinden 
 data1e <- left_join(data1b, data1d, by=c("V_ID"))
 data1f <- data1e %>% filter(!(is.na(PFLEGEGRAD_END))) %>% 
-  mutate(V_PFLEGEGRAD2=as.numeric(V_PFLEGEGRAD),
-         PFLEGEGRAD_END2=as.numeric(PFLEGEGRAD_END),
-         diff_PG= PFLEGEGRAD_END2-V_PFLEGEGRAD2,
-         diff_PG=as.factor(diff_PG))
+  mutate(V_PFLEGEGRAD2 = as.numeric(V_PFLEGEGRAD),
+         PFLEGEGRAD_END2 = as.numeric(PFLEGEGRAD_END),
+         diff_PG = PFLEGEGRAD_END2-V_PFLEGEGRAD2,
+         diff_PG =as.factor(diff_PG))
 
 table1_pg_mitte <- table1(~ V_PFLEGEGRAD + PFLEGEGRAD_END + diff_PG | TG, data=data1f)
 
@@ -257,6 +292,7 @@ data1f <- data1e %>% filter(!(is.na(PFLEGEGRAD_END))) %>%
 table1_pg_ende <- table1(~ V_PFLEGEGRAD + PFLEGEGRAD_END + diff_PG | TG, data=data1f)
 
 list_of_datasets <- list("table1" = table1,
+                         "table1_feb" = table1_feb,
                          "table1_pg_mitte" = table1_pg_mitte,
                          "table1_pg_ende" = table1_pg_ende)
 
