@@ -1,3 +1,6 @@
+ZG3: Lebende & Verstorbene mit vollständigen Daten
+ZG4: nur Lebende mit vollständigen Daten 
+
 TG1: Bewohner:innen des „Haus Rheinaue“
 TG2: Bewohner:innen in ambulant betreuten Wohngruppen
 TG3: Bewohner:innen in vollstationären Pflegeeinrichtungen
