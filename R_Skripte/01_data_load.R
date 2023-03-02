@@ -72,10 +72,7 @@ kht12 <-  read.csv("12_kht_20-21_2022-07-21 15-41-21.csv", sep=",")
 # data save
 setwd('O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020')
 
-# nur 2020 übrig behalten
-stamm01 <- stamm01 %>% filter(V_STERBEDATUM == '' | ymd(V_STERBEDATUM) <= as.Date('2020-12-31'))
 save(stamm01, file="stamm01.rda")
-
 save(tg02, file="tg02.rda")
 
 # nur 2020 übrig behalten
@@ -162,6 +159,7 @@ save(plart06,file="plart06.rda")
 save(pg07,file="pg07.rda")
 save(hkp08,file="hkp08.rda")
 save(hkpgop09,file="hkpgop09.rda")
+save(hkpmedi09,file="hkpmedi09.rda")
 save(sgbv10,file="sgbv10.rda")
 save(kh11,file="kh11.rda")
 save(kht12,file="kht12.rda")
