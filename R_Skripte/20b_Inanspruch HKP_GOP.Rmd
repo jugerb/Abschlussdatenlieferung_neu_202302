@@ -384,7 +384,7 @@ kh11c <- kh11b %>%
 ```
 
 
-Data prep and save
+Data prep
 ```{r, include = FALSE}
 data3 <- kh11c
 

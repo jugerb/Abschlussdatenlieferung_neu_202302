@@ -484,6 +484,7 @@ list_of_datasets <- list("results_alle" =results_alle,"results_weight" =results_
 write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/20_Inanspruch_Kosten_HKP1_2019.xlsx")
 ```
 
+
 # 2020
 ```{r}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")

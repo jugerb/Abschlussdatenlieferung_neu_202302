@@ -109,7 +109,6 @@ kh11e <- kh11d %>%
 # teilweise Rechnungsdatum und Leistungsdatum nicht identisch
 # für Indikatoren nicht relevant
 
-# Slicen zur Skriptprobe
 plart06a <- plart06 %>% arrange(V_ID)
 
 plart06a$LEISTUNG_VON<- ymd(plart06a$LEISTUNG_VON)
