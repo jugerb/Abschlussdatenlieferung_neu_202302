@@ -11,7 +11,7 @@ library(psych)
 library(dlookr)
 library(openxlsx)
 library(validate)
-library(epiDisplay)
+#library(epiDisplay)
 ```
 
 # 2019
@@ -278,7 +278,7 @@ data5_tg3 <- left_join(data4, plart06_tg3a, by=c("V_ID"))
 data5_tg5 <- left_join(data4, data5_tg5a, by=c("V_ID"))
 ```
 
-```{r}
+```{r export_2019}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019")
 
 save(data5_tg1,file="data5_tg1.Rda")
@@ -292,12 +292,11 @@ save(data4,file="data4.Rda")
 
 
 # 2020
-
 ```{r data_load_2020}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
 
 load('stamm01.rda')
-# load('tg02.rda') # fehlt noch
+load('tg02.rda') # fehlt noch
 load('vz03.rda')
 load('vzpg04.rda')
 load('pl05.rda')
@@ -318,7 +317,11 @@ load('kht12.rda')
 vz03$V_VZ_VON<- ymd(vz03$V_VZ_VON)
 vz03$V_VZ_BIS<- ymd(vz03$V_VZ_BIS)
 stamm01$V_STERBEDATUM[stamm01$V_STERBEDATUM==""] <- NA
+
+# Sterbedatum für 2021 Verstorbene NA setzen
+stamm01$V_STERBEDATUM <- ifelse(ymd(stamm01$V_STERBEDATUM) >= as.Date('2021-01-01'), NA, stamm01$V_STERBEDATUM)
 stamm01$V_STERBEDATUM <- ymd(stamm01$V_STERBEDATUM)
+# table(stamm01$V_STERBEDATUM, useNA='always')
 
 # Versicherungsdauer
 vz03 <- vz03 %>% mutate(versdauer = as.double(V_VZ_BIS - V_VZ_VON))
@@ -353,6 +356,7 @@ vz03d<- vz03d %>%
 # erfüllen Kriterien 
 check1 <- vz03d %>% filter(is.na(V_STERBEDATUM) & n_TOTAL > 357) # ursprünglich 722 
 check2 <- vz03d %>% filter(n_diff_totaltod < 8)
+#check3 <- vz03d %>% filter(n_diff_totaltod > 8)
 
 # Indikator für verschiedene Gruppen
 vz03d <- vz03d %>% 
@@ -388,6 +392,7 @@ data2_zg3 <-
 # add Stapelindikator
 # data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
 ```
+
 
 Versicherungsdaten nach Pflegegrad
 ```{r vz_nach_pg_2020}
@@ -555,7 +560,7 @@ data5_tg3 <- left_join(data4, plart06_tg3a, by=c("V_ID"))
 data5_tg5 <- left_join(data4, data5_tg5a, by=c("V_ID"))
 ```
 
-```{r}
+```{r export_2020}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020")
 
 save(data5_tg1,file="data5_tg1.Rda")
@@ -832,7 +837,7 @@ data5_tg3 <- left_join(data4, plart06_tg3a, by=c("V_ID"))
 data5_tg5 <- left_join(data4, data5_tg5a, by=c("V_ID"))
 ```
 
-```{r}
+```{r export_2021}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
 
 save(data5_tg1,file="data5_tg1.Rda")

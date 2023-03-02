@@ -106,7 +106,7 @@ data4a <- data4 %>%
 
 data4a <- data4a %>% 
   filter(n_ID==1) %>% 
-  dplyr::select(V_ID,V_ALTER,V_STERBEDATUM,ZG3, ZG4  )
+  dplyr::select(V_ID,V_ALTER,V_STERBEDATUM,ZG3, ZG4)
 
 data11 <- left_join(data10f,data4a, by=c("V_ID"))
 ```

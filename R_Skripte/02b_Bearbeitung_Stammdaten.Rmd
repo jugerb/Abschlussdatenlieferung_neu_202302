@@ -115,17 +115,20 @@ ausschluss_hkp <- check4 %>% select(V_ID,exkl)
 ## Wo kommen dir Daten her? 
 # siehe hier für den Einstieg
 # "O:\U5279\Routinedaten\Abschlussdatenlieferung20_21\R-Skripte\19_Kosten_Pflegegeld_v2.Rmd"
-pg07$LEISTUNG_VON<- ymd(pg07$LEISTUNG_VON)
-pg07$LEISTUNG_BIS<- ymd(pg07$LEISTUNG_BIS)
+pg07$LEISTUNG_VON <- ymd(pg07$LEISTUNG_VON)
+pg07$LEISTUNG_BIS <- ymd(pg07$LEISTUNG_BIS)
 
 # Datensatz für Analysen erstellen
-help1a <- pg07 %>% arrange(V_ID) %>% filter(GEBPOS_KURZ_NEU=="Geld") #%>%slice_head(n = 10000)
+help1a <- pg07 %>% arrange(V_ID) %>% 
+  filter(GEBPOS_KURZ_NEU=="Geld") #%>%slice_head(n = 10000)
 
 # ID für Zahlungen erstellen
-help1 <- help1a %>% mutate(pg_id=row_number())
+help1 <- help1a %>% 
+  mutate(pg_id=row_number())
 
 # Exklusion ab bestimmter Höhe (300 da ab dort viele Fälle, Intensivziffer wird mit über 300 abgerechnet)
-check <- help1 %>% filter(ZAHLBETRAG > 2000 | ZAHLBETRAG < (-2000))
+check <- help1 %>% 
+  filter(ZAHLBETRAG > 2000 | ZAHLBETRAG < (-2000))
 
 # nach ID zusammenfassen
 check2 <- check %>% group_by(V_ID) %>% 
@@ -178,15 +181,17 @@ ausschluss_pg <- check2 %>% select(V_ID, exkl)
 
 ```{r cleaning_2019}
 # erstes Mengengerüst Fallzahl & Behandlungstage nach TG
-data11 <- data11 %>% dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1))
+data11 <- data11 %>% 
+  dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1))
 
 sum1 <- data11 %>% group_by(TG) %>% 
   summarise(n= n_distinct(V_ID),
             bt= sum(intervalldauer))
 
 sum1a <- data11 %>% ungroup() %>% 
-  summarise(n= n_distinct(V_ID),
-            bt= sum(intervalldauer))%>%  mutate(TG="alle")
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer))%>%  
+  mutate(TG="alle")
 
 sum1 <- bind_rows(sum1, sum1a)
 
@@ -282,7 +287,7 @@ data11_neu <- data11l %>%
 # Daten speichern
 save(data11_neu, file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2019/data11_neu.Rda")
 
-list_of_datasets <- list("sum1" = sum1,"sum2" = sum2,"sum3" = sum3,"sum4" = sum4)
+list_of_datasets <- list("sum1" = sum1,"sum2" = sum2,"sum3" = sum3,"sum4" = sum4, "sum5" = sum5)
 write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/01_Fallzahlen/02b_Fallzahlen2019.xlsx")
 ```
 
@@ -332,8 +337,9 @@ check4 <- check3 %>% group_by(V_ID) %>%
   summarise(n=n()) %>% 
   mutate(exkl=1)
 
-ausschluss_hkp <- check4 %>% select(V_ID,exkl)
+ausschluss_hkp <- check4 %>% dplyr::select(V_ID,exkl)
 ```
+
 
 ```{r ausschluss_pg_2020}
 # Herkunft des Codes siehe hier: "O:\U5279\Routinedaten\Abschlussdatenlieferung20_21\R-Skripte\19_Kosten_Pflegegeld_v2.Rmd"
@@ -354,7 +360,7 @@ check2 <- check %>% group_by(V_ID) %>%
   summarise(n=n()) %>% 
   mutate(exkl=1)
 
-ausschluss_pg <- check2 %>% select(V_ID, exkl)
+ausschluss_pg <- check2 %>% dplyr::select(V_ID, exkl)
 ```
 
 
@@ -371,8 +377,10 @@ sum1a <- data11 %>% ungroup() %>%
             bt= sum(intervalldauer))%>%  mutate(TG="alle")
 
 sum1 <- bind_rows(sum1, sum1a)
+```
 
 
+```{r cleaning_2020}
 #*************
 # Ausschluss Daten vor 2020
 data11a <- data11 %>% filter(END_DATE >= "2020-01-01")
@@ -454,6 +462,7 @@ sum5a <- data11l %>% ungroup() %>%
 sum5 <- bind_rows(sum5, sum5a)
 ```
 
+
 ```{r save&descr_2020}
 ### Daten speichern
 # Dauer des Intervalls
@@ -463,7 +472,7 @@ data11_neu <- data11l %>%
 # Daten speichern
 save(data11_neu, file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2020/data11_neu.Rda")
 
-list_of_datasets <- list("sum1" = sum1, "sum2" = sum2, "sum3" = sum3,  "sum4" = sum4)
+list_of_datasets <- list("sum1" = sum1, "sum2" = sum2, "sum3" = sum3,  "sum4" = sum4, "sum5" = sum5)
 write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/01_Fallzahlen/02b_Fallzahlen2020.xlsx")
 ```
 
@@ -540,7 +549,7 @@ ausschluss_pg <- check2 %>% select(V_ID, exkl)
 
 
 
-```{r}
+```{r cleaning_2021}
 #*************
 #Start Bereinigung TG1 
 # IDs mit TG1 filtern
@@ -645,15 +654,14 @@ data11j <- data11j %>%
   dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1))
 
 #table(data11j$intervalldauer, useNA = 'always')
-
-
 sum1 <- data11j %>% group_by(TG) %>% 
   summarise(n = n_distinct(V_ID),
             bt = sum(intervalldauer))
 
 sum1a <- data11j %>% ungroup() %>% 
   summarise(n = n_distinct(V_ID),
-            bt = sum(intervalldauer)) %>%  mutate(TG="alle")
+            bt = sum(intervalldauer)) %>%  
+  mutate(TG = "alle")
 
 sum1 <- bind_rows(sum1, sum1a)
 
@@ -694,6 +702,7 @@ sum3a <- data11k %>% ungroup() %>%
             bt= sum(intervalldauer))%>%  mutate(TG="alle")
 
 sum3 <- bind_rows(sum3, sum3a)
+
 
 #*************
 # Auschluss a.G. von HKP
