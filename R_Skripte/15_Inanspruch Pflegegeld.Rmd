@@ -443,6 +443,9 @@ data6 <- data5a %>%
   ungroup() %>% 
   dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
 
+write.xlsx(data6, 
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Gewichte2019.xlsx")
+
 # erneute Verbindung mit Ergebnissen
 data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
   mutate_all(~replace(., is.na(.), 0))
@@ -480,6 +483,7 @@ list_of_datasets <- list("results_alle" = results_alle, "results_weight" = resul
 
 write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/15_Inanspruch_PG_2019.xlsx")
 ```
+
 
 # 2020
 
@@ -891,6 +895,9 @@ data6 <- data5a %>%
   mutate(weight = oKH_Tage/days_tg) %>% 
   ungroup() %>% 
   dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+write.xlsx(data6, 
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Gewichte2020.xlsx")
 
 # erneute Verbindung mit Ergebnissen
 data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
@@ -1341,6 +1348,9 @@ data6 <- data5a %>%
   mutate(weight = oKH_Tage/days_tg) %>% 
   ungroup() %>% 
   dplyr::select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+write.xlsx(data6, 
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Gewichte2021.xlsx")
 
 # erneute Verbindung mit Ergebnissen
 data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
