@@ -1,0 +1,598 @@
+---
+title: "PG Veränderungen"
+author: "grb"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(openxlsx)
+```
+
+
+```{r data_load}
+stamm01 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/01_stamm_20-21_2022-07-20 18-55-30.csv')
+vzpg04 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/04_vz_pg_20-21_2022-07-20 19-01-26.csv')
+
+load('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/data11_neu.Rda')
+dat <- data11_neu
+```
+
+PG-Datensatz vorbereiten: 
+```{r pg_data}
+# PG df prep
+vzpg04 <- vzpg04 %>% 
+  mutate(across(starts_with('V_PG_'), ~ ymd(.)))
+
+# df mit Sterbedaten vorbereiten (gleiche Bauart wie PG-Tabelle herstellen)
+tmp <- stamm01 %>%
+  mutate(V_STERBEDATUM = ymd(V_STERBEDATUM)) %>% 
+  na.omit() %>% 
+  mutate(V_ID_PG = NA, 
+         V_PFLEGEGRAD = 99,
+         V_PG_BIS = as.Date('9999-12-31')) %>% 
+  select(V_ID, V_ID_PG, V_PFLEGEGRAD, V_PG_VON = V_STERBEDATUM, V_PG_BIS)
+
+# zusammenfügen & in Form bringen  
+pg <- bind_rows(vzpg04, tmp) %>% 
+  group_by(V_ID) %>% 
+  arrange(V_ID, V_PG_VON) %>%
+  ungroup() 
+
+# Intervall des Pflegegrads hinzufügen
+pg$int <- interval(start = pg$V_PG_VON, end=pg$V_PG_BIS)
+
+
+# Welchen PG hatte jede ID zum Zeitpunkt des Querschnitts? 
+tmp <- pg %>%
+  #slice_head(n = 5000) %>%
+  group_by(V_ID) %>%
+  arrange(V_ID, V_PG_VON) %>%
+  mutate(
+    Beginn = V_PFLEGEGRAD[as.Date('2020-01-01') %within% int],
+    Jul20 = ifelse(any(as.Date('2020-07-01') %within% int), V_PFLEGEGRAD[as.Date('2020-07-01') %within% int], Beginn),
+    Jan21 = ifelse(any(as.Date('2021-01-01') %within% int), V_PFLEGEGRAD[as.Date('2021-01-01') %within% int], Jul20),
+    Jul21 = ifelse(any(as.Date('2021-07-01') %within% int), V_PFLEGEGRAD[as.Date('2021-07-01') %within% int], Jan21),
+    Ende = ifelse(any(as.Date('2021-12-31') %within% int), V_PFLEGEGRAD[as.Date('2021-12-31') %within% int], Jul21)
+    ) %>%
+  ungroup() %>%
+  distinct(V_ID, .keep_all = TRUE)
+
+# mit den übrigen Daten verbinden
+dat <- left_join(dat, tmp, by=c("V_ID"))
+dat <- distinct(dat, V_ID, TG, START_DATE, .keep_all = TRUE)
+```
+
+
+## Querschnitt 
+```{r quer_calculation}
+# unique Werte?
+n_distinct(dat$V_ID)
+nrow(dat) - n_distinct(dat$V_ID) # >90k doppelte Ids
+
+
+# Intervall erstellen & Einträge pro ID zählen
+dat <- dat %>% 
+  mutate(
+    # Datenintervall berechnen
+    int = interval(start=START_DATE, end=END_DATE),
+    # Intervall mit Toleranz für Toleranz am Datenbeginn
+    int_tol = interval(start=START_DATE - 14 , end=END_DATE)) %>% 
+  group_by(V_ID) %>% 
+  mutate(n=n()) %>% # Hilfsvariable, kann evtl. später raus
+  ungroup()
+
+
+# pivotieren & in Faktoren umwandeln + umbenennen
+long <- dat %>%
+  select(V_ID, TG, V_STERBEDATUM, int, int_tol, n, Beginn:Ende) %>% 
+  pivot_longer(Beginn:Ende, names_to = 'mzp', values_to = 'pg') %>%
+  group_by(mzp, pg) %>% 
+  ungroup() %>% 
+  mutate(pg = as.factor(case_when(
+    pg == 1 ~ 'PG1', 
+    pg == 2 ~ 'PG2',
+    pg == 3 ~ 'PG3',
+    pg == 4 ~ 'PG4',
+    pg == 5 ~ 'PG5',
+    pg == 99 ~ 'Verstorben'
+  )), 
+  mzp = factor(mzp, levels = c('Beginn', 'Jul20', 'Jan21', 'Jul21', 'Ende'))
+  ) 
+
+### Duplicate entfernen
+# Ziel: mehrfache Zählung einzelner Personen verhindern
+long <- long %>%
+  # exaktes Datum des Querschnitts hinzufügen
+  mutate(mzp_date = as.Date(rep(c('2020-01-01', '2020-07-01', '2021-01-01', '2021-07-01', '2021-12-31'), nrow(long)/5))) %>% 
+  # NA setzen, wenn Querschnittsdatum nicht im Datenintervall liegt
+  mutate(pg2 = case_when(
+    (mzp_date == as.Date('2020-01-01') &  mzp_date %within% int_tol) ~ as.character(pg), # Toleranz für Beginn von 14 Tagen
+    (mzp_date != as.Date('2020-01-01') & mzp_date %within% int) ~ as.character(pg), 
+    # Vrestorbene erstmal beibehalten unabhängig vom Datenintervall
+    pg %in% 'Verstorben' ~ as.character(pg), 
+    TRUE ~ as.character(NA))
+  )
+
+# Verstrorbenen zwar fortscheiben, aber nur noch in der TG zählen, in der sie verstorben
+long <- long %>% 
+  ungroup() %>% 
+  mutate(
+    # liegt das Sterbedatum im Datenintervall?
+    tod_im_int = case_when(
+      is.na(V_STERBEDATUM) ~ as.numeric(NA),
+      V_STERBEDATUM %within% int ~ 1,
+      TRUE ~ 0), 
+    # NA setzen, wenn Tod nicht im Datenintervall stattgefunden hat
+    pg3 = case_when(
+      is.na(tod_im_int) | tod_im_int == 1 ~ as.character(pg2),
+      tod_im_int == 0 & pg2 == 'Verstorben' ~ as.character(NA),
+    # keine Änderungen, wenn nicht verstroben
+    tod_im_int == 0 & pg2 != 'Verstorben' ~ as.character(pg2))
+  )
+```
+
+
+```{r pg_gesamt}
+# aggregieren
+tmp <- long %>%
+  group_by(mzp, pg3) %>%
+  tally() %>% 
+  rename(freq = n) %>%
+  mutate(mzp_fct = factor(mzp, levels=c('Beginn', 'Jul20', 'Jan21', 'Jul21', 'Ende')),
+         pg3 = factor(pg3)) %>% 
+  complete(pg3) %>% 
+  replace_na(list(freq = 0)) %>% 
+  ungroup()
+
+# NAs herausfiltern --> dadurch werden Versicherte nicht mehrfach gezählt
+ tmp <- tmp %>% filter(!is.na(pg3))
+
+# relative Häufigkeiten hinzufügen
+tmp <- tmp %>%
+  group_by(mzp) %>% 
+  mutate(rel = freq / sum(freq, na.rm = TRUE))
+
+# Vorbereitung fürs Speichern
+pg_gesamt <- tmp %>% select(-mzp_fct)
+```
+
+
+```{r colors, include=FALSE}
+mycolors0 <- c("#00386A", "#CBD3B2", "#BED600", '#3399CC', '#EDA63B', '#BD182D')
+mycolors1 <- c("#002A50", "#A1B074", "#8EA72F", '#1C67C1', '#CB8213', '#8E1222')
+mycolors2 <- c("#0D8DFF", "#E0E5D1", "#D1E295", '#8EBAEF', '#F4CA89', '#EB6172')
+mycolors3 <- c("#BED600", "#F0F5DC", "#E1EBB9", '#D1E295', '#8EA72F', '#5E6F1F')
+```
+
+
+```{r plots_ges, echo=FALSE, warning=FALSE}
+### plotten
+# absolut
+p <- ggplot(tmp, aes(x = mzp, y = freq, fill = pg3)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::comma(freq, big.mark='.', decimal.mark=',')), 
+            color="#00386a", size=4.5, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = function(x) format(x, big.mark = ".", scientific = FALSE)) + 
+  theme_bw() +
+  ylab('Anzahll Versicherter') +
+  theme(plot.title = element_blank(),
+        axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+        axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        axis.title.x = element_blank(),
+        strip.text.x = element_text(color="#00386a", family = "Verdana", size = 14),
+        legend.title = element_blank(),
+        legend.text = element_text(color="#00386a", family = "Verdana", size = 14)) 
+
+p
+
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_gesamt.bmp", 
+    width = 750, height = 500, type="windows")
+print(p)
+dev.off()
+
+
+# relativ
+p <- ggplot(tmp, aes(x = mzp, y = rel, fill = pg3)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::percent(rel, decimal.mark = ',', accuracy = 0.1)), 
+            color="#00386a", size=4.5,
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = scales::percent) + 
+  theme_bw() +
+  ylab('Anteil Versicherter') +
+  theme(plot.title = element_blank(),
+        axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+        axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        axis.title.x = element_blank(),
+        strip.text.x = element_text(color="#00386a", family = "Verdana", size = 14),
+        legend.title = element_blank(),
+        legend.text = element_text(color="#00386a", family = "Verdana", size = 14)) 
+
+p
+
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_gesamt_rel.bmp", 
+    width = 750, height = 500, type="windows")
+print(p)
+dev.off()
+```
+
+
+**Querschnitt nach Teilgruppen**
+```{r pg_tg, warning=FALSE}
+tmp <- long %>%
+  group_by(mzp, pg3, TG) %>%
+  tally() %>% 
+  rename(freq = n) %>%
+  ungroup() %>%
+  mutate(mzp_fct = factor(mzp, levels=c('Beginn', 'Jul20', 'Jan21', 'Jul21', 'Ende')),
+         pg3 = factor(pg3), 
+         TG = factor(TG)) %>% 
+  complete(TG, pg3, mzp_fct) %>% 
+  replace_na(list(freq = 0)) %>% 
+  ungroup() %>% 
+  filter(!is.na(mzp))
+
+# NAs herausfiltern --> dadurch werden Versicherte nicht mehrfach gezählt
+ tmp <- tmp %>% filter(!is.na(pg3))
+
+# relative Häufigkeiten hinzufügen
+tmp <- tmp %>%
+  group_by(TG, mzp) %>% 
+  mutate(rel = freq / sum(freq, na.rm = TRUE))
+
+# Vorbereitung fürs Speichern
+pg_tg <- tmp %>% select(-mzp_fct)
+```
+
+
+```{r plot_tg, echo=FALSE, warning=FALSE}
+tgs <- c('TG1', 'TG2', 'TG3', 'TG4', 'TG5')
+plot_list <- list()
+
+for (tg in tgs) {
+
+  ### absoluter Plot
+  p1 <- tmp %>% filter(TG==tg) %>% 
+  ggplot(aes(x = mzp, y = freq, fill = pg3)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::comma(freq, big.mark='.', decimal.mark=',')), 
+            color="#00386a", size=4.5,
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = function(x) format(x, big.mark = ".", scientific = FALSE)) + 
+  theme_bw() +
+  ylab('Anzahl Versicherter') +
+  ggtitle(paste(tg, 'absolut')) +
+  theme(plot.title = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
+
+  # Plot exportieren
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt", tg, sep='_'), '.bmp', sep=''),
+      width = 750, height = 500, type="windows")
+  print(p1)
+  dev.off()
+  
+  # Plot in Liste ablegen
+  plot_list[[paste(tg, "Plot 1", sep = " ")]] <- p1
+
+
+  ### relativer Plot
+  p2 <- tmp %>% filter(TG ==tg) %>% 
+  ggplot(aes(x = mzp, y = rel, fill = pg3)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::percent(rel, decimal.mark = ',', accuracy = 0.1)), 
+            color="#00386a", size=4.5,
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = scales::percent) + 
+  theme_bw() +
+  ylab('Anteil Versicherter') +
+  ggtitle(paste(tg, 'relativ')) +
+  theme(plot.title = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    axis.title.x = element_blank(),
+    legend.title = element_blank(), 
+    legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
+  
+  # Plot exportieren
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_rel", tg, sep='_'), '.bmp', sep=''),
+      width = 750, height = 500, type="windows")
+  print(p1)
+  dev.off()
+  
+  # in der Liste ablegen
+  plot_list[[paste(tg, "Plot 2", sep = " ")]] <- p2
+  
+}
+
+print(plot_list)
+```
+
+
+```{r export}
+list_of_datasets <- list("pg_gesamt" = pg_gesamt, "pg_tg" = pg_tg)
+
+write.xlsx(list_of_datasets, 
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Verlauf_PG_2020_21.xlsx")
+```
+
+
+
+
+## Längsschnitt
+```{r laengs_cats}
+tmp <- dat %>% 
+  mutate(
+    # Veränderungen zum vorangegangenen mzp
+    Jul20_ch = Jul20 - Beginn,
+    Jan21_ch = Jan21 - Jul20,
+    Jul21_ch = Jul21 - Jan21, 
+    Ende_ch = Ende - Jul21,
+    
+    # Veränderungen kategorisieren (alt-Verstorbene werden jeweils entfernt)
+    Jul20 = case_when(
+      Jul20_ch > 90 ~ 'Verstorben', 
+      Jul20_ch < 0 ~ 'zurückgestuft', 
+      Jul20_ch > 0 ~ 'hochgestuft', 
+      Jul20_ch == 0 ~ 'unverändert'
+    ), 
+    Jan21 = case_when(
+      Jul20 == 'Verstorben' ~ as.character(NA),
+      Jan21_ch > 90 ~ 'Verstorben', 
+      Jan21_ch < 0 ~ 'zurückgestuft', 
+      Jan21_ch > 0 ~ 'hochgestuft', 
+      Jan21_ch == 0 ~ 'unverändert'
+    ), 
+    Jul21 = case_when(
+      Jan21 == 'Verstorben' | is.na(Jan21) ~ as.character(NA),
+      Jul21_ch > 90 ~ 'Verstorben', 
+      Jul21_ch < 0 ~ 'zurückgestuft', 
+      Jul21_ch > 0 ~ 'hochgestuft', 
+      Jul21_ch == 0 ~ 'unverändert'
+    ), 
+    Ende = case_when(
+      Jul21 == 'Verstorben' | is.na(Jul21) ~ as.character(NA),
+      Ende_ch > 90 ~ 'Verstorben', 
+      Ende_ch < 0 ~ 'zurückgestuft', 
+      Ende_ch > 0 ~ 'hochgestuft', 
+      Ende_ch == 0 ~ 'unverändert'
+    )
+  )
+```
+
+
+```{r laengs_calculation}
+# pivotieren & in Faktoren umwandeln + umbenennen
+long <- tmp %>%
+  select(V_ID, TG, V_STERBEDATUM, int, n, Jul20:Ende) %>% 
+  pivot_longer(Jul20:Ende, names_to = 'mzp', values_to = 'pg_change') %>%
+  group_by(mzp, pg_change) %>% 
+  ungroup() %>% 
+  mutate(
+    pg_change = as.factor(pg_change),
+    mzp = factor(mzp, levels = c('Jul20', 'Jan21', 'Jul21', 'Ende'))
+  )
+
+
+### Duplikate entfernen
+# Ziel: mehrfache Zählung einzelner Personen verhindern
+long <- long %>%
+  ungroup() %>%
+  mutate(
+    # exaktes Datum des Querschnitts hinzufügen
+     mzp_date = as.Date(rep(c('2020-07-01', '2021-01-01', '2021-07-01', '2021-12-31'), nrow(long)/4)),  
+    # Längsschnitt-Beobachtungsinterval hinzufügen
+    int_mzp = case_when( 
+      mzp == 'Jul20' ~ interval(start=as.Date('2020-01-01') , end=as.Date('2020-06-30')),
+      mzp == 'Jan21' ~ interval(start=as.Date('2020-07-01') , end=as.Date('2020-12-31')),
+      mzp == 'Jul21' ~ interval(start=as.Date('2021-01-01') , end=as.Date('2021-06-30')),
+      mzp == 'Ende' ~ interval(start=as.Date('2021-07-01') , end=as.Date('2021-12-31')), 
+      TRUE ~ as.interval(NA)
+    ),
+  # NA setzen, wenn Beobachtungsdatum nicht im Datenintervall liegt
+  pg_change2 = case_when(
+    # Verstorben beinbehalten, wenn Versterben innerhalb des Beobachtungsintervalls (mzp_int) UND innerhal des Datenintervalls (int)
+    (V_STERBEDATUM %within% int_mzp & V_STERBEDATUM %within% int) ~ as.character(pg_change), 
+    # Überlebende beibehalten wenn Stichdatum in Datenintervall
+    mzp_date %within% int ~ as.character(pg_change),
+    TRUE ~ as.character(NA))
+  )
+```
+
+
+```{r pg_change_gesamt}
+# aggregieren
+tmp <- long %>%
+  group_by(mzp, pg_change2) %>%
+  tally() %>% 
+  rename(freq = n) %>%
+  mutate(mzp_fct = factor(mzp, levels=c('Jul20', 'Jan21', 'Jul21', 'Ende')),
+         pg_change2 = factor(pg_change2, levels=c('zurückgestuft', 'unverändert', 'hochgestuft', 'Verstorben'))) %>% 
+  complete(pg_change2) %>% 
+  replace_na(list(freq = 0)) %>% 
+  ungroup()
+
+# NAs herausfiltern --> dadurch werden Versicherte nicht mehrfach gezählt
+ tmp <- tmp %>% filter(!is.na(pg_change2))
+
+# relative Häufigkeiten hinzufügen
+tmp <- tmp %>%
+  group_by(mzp) %>% 
+  mutate(rel = freq / sum(freq, na.rm = TRUE))
+
+# Vorbereitung fürs Speichern
+pg_change_gesamt <- tmp %>% select(-mzp_fct)
+```
+
+
+```{r plots_change_ges, echo=FALSE, warning=FALSE}
+### plotten
+# absolut
+p <- ggplot(tmp, aes(x = mzp, y = freq, fill = pg_change2)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::comma(freq, big.mark='.', decimal.mark=',')), 
+            color="#00386a", size=4.5, 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = function(x) format(x, big.mark = ".", scientific = FALSE)) + 
+  theme_bw() +
+  ylab('Anzahll Versicherter') +
+  theme(plot.title = element_blank(),
+        axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+        axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        axis.title.x = element_blank(),
+        strip.text.x = element_text(color="#00386a", family = "Verdana", size = 14),
+        legend.title = element_blank(),
+        legend.text = element_text(color="#00386a", family = "Verdana", size = 14)) 
+
+p
+
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_gesamt.bmp", 
+    width = 750, height = 500, type="windows")
+print(p)
+dev.off()
+
+
+# relativ
+p <- ggplot(tmp, aes(x = mzp, y = rel, fill = pg_change2)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::percent(rel, decimal.mark = ',', accuracy = 0.1)), 
+            color="#00386a", size=4.5,
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = scales::percent) + 
+  theme_bw() +
+  ylab('Anteil Versicherter') +
+  theme(plot.title = element_blank(),
+        axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+        axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        text = element_text(color="#00386a", family = "Verdana", size = 14), 
+        axis.title.x = element_blank(),
+        strip.text.x = element_text(color="#00386a", family = "Verdana", size = 14),
+        legend.title = element_blank(),
+        legend.text = element_text(color="#00386a", family = "Verdana", size = 14)) 
+
+p
+
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_gesamt_rel.bmp", 
+    width = 750, height = 500, type="windows")
+print(p)
+dev.off()
+```
+
+
+
+**Längsschnitt nach Teilgruppen**
+```{r pg_tg, warning=FALSE}
+tmp <- long %>%
+  group_by(mzp, pg_change2, TG) %>%
+  tally() %>% 
+  rename(freq = n) %>%
+  ungroup() %>%
+  mutate(
+    mzp_fct = factor(mzp, levels=c('Jul20', 'Jan21', 'Jul21', 'Ende')),
+    pg_change2 = factor(pg_change2, levels=c('zurückgestuft', 'unverändert', 'hochgestuft', 'Verstorben')),     
+    TG = factor(TG)
+    ) %>% 
+  complete(TG, pg_change2, mzp_fct) %>% 
+  replace_na(list(freq = 0)) %>% 
+  ungroup() %>% 
+  filter(!is.na(mzp))
+
+# NAs herausfiltern --> dadurch werden Versicherte nicht mehrfach gezählt
+ tmp <- tmp %>% filter(!is.na(pg_change2))
+
+# relative Häufigkeiten hinzufügen
+tmp <- tmp %>%
+  group_by(TG, mzp) %>% 
+  mutate(rel = freq / sum(freq, na.rm = TRUE))
+
+# Vorbereitung fürs Speichern
+pg_change_tg <- tmp %>% select(-mzp_fct)
+```
+
+
+```{r plot_change_tg, echo=FALSE, warning=FALSE}
+tgs <- c('TG1', 'TG2', 'TG3', 'TG4', 'TG5')
+plot_list <- list()
+
+for (tg in tgs) {
+
+  ### absoluter Plot
+  p1 <- tmp %>% filter(TG==tg) %>% 
+  ggplot(aes(x = mzp, y = freq, fill = pg_change2)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::comma(freq, big.mark='.', decimal.mark=',')), 
+            color="#00386a", size=4.5,
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = function(x) format(x, big.mark = ".", scientific = FALSE)) + 
+  theme_bw() +
+  ylab('Anzahl Versicherter') +
+  ggtitle(paste(tg, 'absolut')) +
+  theme(plot.title = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
+
+  # Plot exportieren
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt", tg, sep='_'), '.bmp', sep=''),
+      width = 750, height = 500, type="windows")
+  print(p1)
+  dev.off()
+  
+  # Plot in Liste ablegen
+  plot_list[[paste(tg, "Plot 1", sep = " ")]] <- p1
+
+
+  ### relativer Plot
+  p2 <- tmp %>% filter(TG ==tg) %>% 
+  ggplot(aes(x = mzp, y = rel, fill = pg_change2)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = scales::percent(rel, decimal.mark = ',', accuracy = 0.1)), 
+            color="#00386a", size=4.5,
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = mycolors3) + 
+  scale_y_continuous(labels = scales::percent) + 
+  theme_bw() +
+  ylab('Anteil Versicherter') +
+  ggtitle(paste(tg, 'relativ')) +
+  theme(plot.title = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.title.y = element_text(color="#00386a", family = "Verdana", size = 14),
+    axis.text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    text = element_text(color="#00386a", family = "Verdana", size = 14), 
+    axis.title.x = element_blank(),
+    legend.title = element_blank(), 
+    legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
+  
+  # Plot exportieren
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_rel", tg, sep='_'), '.bmp', sep=''),
+      width = 750, height = 500, type="windows")
+  print(p1)
+  dev.off()
+  
+  # in der Liste ablegen
+  plot_list[[paste(tg, "Plot 2", sep = " ")]] <- p2
+  
+}
+
+print(plot_list)
+```
