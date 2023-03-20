@@ -323,11 +323,11 @@ print(plot_list)
 ```
 
 
-```{r export}
+```{r pg_export}
 list_of_datasets <- list("pg_gesamt" = pg_gesamt, "pg_tg" = pg_tg)
 
 write.xlsx(list_of_datasets, 
-           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Verlauf_PG_2020_21.xlsx")
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Querschnitt_PG_2020_21.xlsx")
 ```
 
 
@@ -498,7 +498,7 @@ dev.off()
 
 
 **Längsschnitt nach Teilgruppen**
-```{r pg_tg, warning=FALSE}
+```{r pg_change_tg, warning=FALSE}
 tmp <- long %>%
   group_by(mzp, pg_change2, TG) %>%
   tally() %>% 
@@ -595,4 +595,11 @@ for (tg in tgs) {
 }
 
 print(plot_list)
+```
+
+```{r pg_change_export}
+list_of_datasets <- list("pg_change_gesamt" = pg_change_gesamt, "pg_change_tg" = pg_change_tg)
+
+write.xlsx(list_of_datasets, 
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Längsschnitt_PG_2020_21.xlsx")
 ```

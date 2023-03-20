@@ -52,10 +52,14 @@ tmp <- pg %>%
   arrange(V_ID, V_PG_VON) %>%
   mutate(
     Beginn = V_PFLEGEGRAD[as.Date('2020-01-01') %within% int],
-    Jul20 = ifelse(any(as.Date('2020-07-01') %within% int), V_PFLEGEGRAD[as.Date('2020-07-01') %within% int], Beginn),
-    Jan21 = ifelse(any(as.Date('2021-01-01') %within% int), V_PFLEGEGRAD[as.Date('2021-01-01') %within% int], Jul20),
-    Jul21 = ifelse(any(as.Date('2021-07-01') %within% int), V_PFLEGEGRAD[as.Date('2021-07-01') %within% int], Jan21),
-    Ende = ifelse(any(as.Date('2021-12-31') %within% int), V_PFLEGEGRAD[as.Date('2021-12-31') %within% int], Jul21)
+    Apr20 = ifelse(any(as.Date('2020-04-01') %within% int), V_PFLEGEGRAD[as.Date('2020-04-01') %within% int], Beginn),
+    Jul20 = ifelse(any(as.Date('2020-07-01') %within% int), V_PFLEGEGRAD[as.Date('2020-07-01') %within% int], Apr20),
+    Okt20 = ifelse(any(as.Date('2020-10-01') %within% int), V_PFLEGEGRAD[as.Date('2020-10-01') %within% int], Jul20),
+    Jan21 = ifelse(any(as.Date('2021-01-01') %within% int), V_PFLEGEGRAD[as.Date('2021-01-01') %within% int], Okt20),
+    Apr21 = ifelse(any(as.Date('2021-04-01') %within% int), V_PFLEGEGRAD[as.Date('2021-04-01') %within% int], Jan21),
+    Jul21 = ifelse(any(as.Date('2021-07-01') %within% int), V_PFLEGEGRAD[as.Date('2021-07-01') %within% int], Apr21),
+    Okt21 = ifelse(any(as.Date('2021-10-01') %within% int), V_PFLEGEGRAD[as.Date('2021-10-01') %within% int], Jul21),
+    Ende = ifelse(any(as.Date('2021-12-31') %within% int), V_PFLEGEGRAD[as.Date('2021-12-31') %within% int], Okt21)
     ) %>%
   ungroup() %>%
   distinct(V_ID, .keep_all = TRUE)
@@ -99,14 +103,15 @@ long <- dat %>%
     pg == 5 ~ 'PG5',
     pg == 99 ~ 'Verstorben'
   )), 
-  mzp = factor(mzp, levels = c('Beginn', 'Jul20', 'Jan21', 'Jul21', 'Ende'))
+  mzp = factor(mzp, levels = c('Beginn', 'Apr20', 'Jul20', 'Okt20', 'Jan21', 'Apr21', 'Jul21', 'Okt21', 'Ende'))
   ) 
 
 ### Duplicate entfernen
 # Ziel: mehrfache Zählung einzelner Personen verhindern
 long <- long %>%
   # exaktes Datum des Querschnitts hinzufügen
-  mutate(mzp_date = as.Date(rep(c('2020-01-01', '2020-07-01', '2021-01-01', '2021-07-01', '2021-12-31'), nrow(long)/5))) %>% 
+  mutate(mzp_date = as.Date(rep(c('2020-01-01', '2020-04-01', '2020-07-01', '2020-10-01', 
+                                  '2021-01-01', '2021-04-01', '2021-07-01', '2021-10-01', '2021-12-31'), nrow(long)/9))) %>% 
   # NA setzen, wenn Querschnittsdatum nicht im Datenintervall liegt
   mutate(pg2 = case_when(
     (mzp_date == as.Date('2020-01-01') &  mzp_date %within% int_tol) ~ as.character(pg), # Toleranz für Beginn von 14 Tagen
@@ -141,7 +146,7 @@ tmp <- long %>%
   group_by(mzp, pg3) %>%
   tally() %>% 
   rename(freq = n) %>%
-  mutate(mzp_fct = factor(mzp, levels=c('Beginn', 'Jul20', 'Jan21', 'Jul21', 'Ende')),
+  mutate(mzp_fct = factor(mzp, levels=c('Beginn', 'Apr20', 'Jul20', 'Okt20', 'Jan21', 'Apr21', 'Jul21', 'Okt21', 'Ende')),
          pg3 = factor(pg3)) %>% 
   complete(pg3) %>% 
   replace_na(list(freq = 0)) %>% 
@@ -191,7 +196,7 @@ p <- ggplot(tmp, aes(x = mzp, y = freq, fill = pg3)) +
 
 p
 
-bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_gesamt.bmp", 
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_gesamt_3Monate.bmp", 
     width = 750, height = 500, type="windows")
 print(p)
 dev.off()
@@ -218,7 +223,7 @@ p <- ggplot(tmp, aes(x = mzp, y = rel, fill = pg3)) +
 
 p
 
-bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_gesamt_rel.bmp", 
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_gesamt_3Monate_rel.bmp", 
     width = 750, height = 500, type="windows")
 print(p)
 dev.off()
@@ -232,7 +237,7 @@ tmp <- long %>%
   tally() %>% 
   rename(freq = n) %>%
   ungroup() %>%
-  mutate(mzp_fct = factor(mzp, levels=c('Beginn', 'Jul20', 'Jan21', 'Jul21', 'Ende')),
+  mutate(mzp_fct = factor(mzp, levels=c('Beginn', 'Apr20', 'Jul20', 'Okt20', 'Jan21', 'Apr21', 'Jul21', 'Okt21', 'Ende')),
          pg3 = factor(pg3), 
          TG = factor(TG)) %>% 
   complete(TG, pg3, mzp_fct) %>% 
@@ -280,7 +285,7 @@ for (tg in tgs) {
     legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
 
   # Plot exportieren
-  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt", tg, sep='_'), '.bmp', sep=''),
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_3Monate", tg, sep='_'), '.bmp', sep=''),
       width = 750, height = 500, type="windows")
   print(p1)
   dev.off()
@@ -310,7 +315,7 @@ for (tg in tgs) {
     legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
   
   # Plot exportieren
-  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_rel", tg, sep='_'), '.bmp', sep=''),
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Querschnitt_3Monate_rel", tg, sep='_'), '.bmp', sep=''),
       width = 750, height = 500, type="windows")
   print(p1)
   dev.off()
@@ -324,11 +329,11 @@ print(plot_list)
 ```
 
 
-```{r export}
+```{r pg_export}
 list_of_datasets <- list("pg_gesamt" = pg_gesamt, "pg_tg" = pg_tg)
 
 write.xlsx(list_of_datasets, 
-           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Verlauf_PG_2020_21.xlsx")
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Querschnitt_PG_2020_21_3Monate.xlsx")
 ```
 
 
@@ -339,17 +344,33 @@ write.xlsx(list_of_datasets,
 tmp <- dat %>% 
   mutate(
     # Veränderungen zum vorangegangenen mzp
-    Jul20_ch = Jul20 - Beginn,
-    Jan21_ch = Jan21 - Jul20,
-    Jul21_ch = Jul21 - Jan21, 
-    Ende_ch = Ende - Jul21,
+    Apr20_ch = Apr20 - Beginn,
+    Jul20_ch = Jul20 - Apr20,
+    Okt20_ch = Okt20 - Jul20,
+    Jan21_ch = Jan21 - Okt20,
+    Apr21_ch = Apr21 - Jan21,
+    Jul21_ch = Jul21 - Apr21,
+    Okt21_ch = Okt21 - Jul21,
+    Ende_ch = Ende - Okt21,
     
     # Veränderungen kategorisieren (alt-Verstorbene werden jeweils entfernt)
+    Apr20 = case_when(
+      Apr20_ch > 90 ~ 'Verstorben', 
+      Apr20_ch < 0 ~ 'zurückgestuft', 
+      Apr20_ch > 0 ~ 'hochgestuft', 
+      Apr20_ch == 0 ~ 'unverändert'
+    ),
     Jul20 = case_when(
       Jul20_ch > 90 ~ 'Verstorben', 
       Jul20_ch < 0 ~ 'zurückgestuft', 
       Jul20_ch > 0 ~ 'hochgestuft', 
       Jul20_ch == 0 ~ 'unverändert'
+    ), 
+    Okt20 = case_when(
+      Okt20_ch > 90 ~ 'Verstorben', 
+      Okt20_ch < 0 ~ 'zurückgestuft', 
+      Okt20_ch > 0 ~ 'hochgestuft', 
+      Okt20_ch == 0 ~ 'unverändert'
     ), 
     Jan21 = case_when(
       Jul20 == 'Verstorben' ~ as.character(NA),
@@ -358,6 +379,12 @@ tmp <- dat %>%
       Jan21_ch > 0 ~ 'hochgestuft', 
       Jan21_ch == 0 ~ 'unverändert'
     ), 
+    Apr21 = case_when(
+      Apr21_ch > 90 ~ 'Verstorben', 
+      Apr21_ch < 0 ~ 'zurückgestuft', 
+      Apr21_ch > 0 ~ 'hochgestuft', 
+      Apr21_ch == 0 ~ 'unverändert'
+    ),
     Jul21 = case_when(
       Jan21 == 'Verstorben' | is.na(Jan21) ~ as.character(NA),
       Jul21_ch > 90 ~ 'Verstorben', 
@@ -365,6 +392,12 @@ tmp <- dat %>%
       Jul21_ch > 0 ~ 'hochgestuft', 
       Jul21_ch == 0 ~ 'unverändert'
     ), 
+    Okt21 = case_when(
+      Okt21_ch > 90 ~ 'Verstorben', 
+      Okt21_ch < 0 ~ 'zurückgestuft', 
+      Okt21_ch > 0 ~ 'hochgestuft', 
+      Okt21_ch == 0 ~ 'unverändert'
+    ),
     Ende = case_when(
       Jul21 == 'Verstorben' | is.na(Jul21) ~ as.character(NA),
       Ende_ch > 90 ~ 'Verstorben', 
@@ -379,15 +412,14 @@ tmp <- dat %>%
 ```{r laengs_calculation}
 # pivotieren & in Faktoren umwandeln + umbenennen
 long <- tmp %>%
-  select(V_ID, TG, V_STERBEDATUM, int, n, Jul20:Ende) %>% 
-  pivot_longer(Jul20:Ende, names_to = 'mzp', values_to = 'pg_change') %>%
+  select(V_ID, TG, V_STERBEDATUM, int, n, Apr20:Ende) %>% 
+  pivot_longer(Apr20:Ende, names_to = 'mzp', values_to = 'pg_change') %>%
   group_by(mzp, pg_change) %>% 
   ungroup() %>% 
   mutate(
     pg_change = as.factor(pg_change),
-    mzp = factor(mzp, levels = c('Jul20', 'Jan21', 'Jul21', 'Ende'))
+    mzp = factor(mzp, levels = c('Apr20', 'Jul20', 'Okt20', 'Jan21', 'Apr21', 'Jul21', 'Okt21', 'Ende'))
   )
-
 
 ### Duplikate entfernen
 # Ziel: mehrfache Zählung einzelner Personen verhindern
@@ -395,13 +427,18 @@ long <- long %>%
   ungroup() %>%
   mutate(
     # exaktes Datum des Querschnitts hinzufügen
-     mzp_date = as.Date(rep(c('2020-07-01', '2021-01-01', '2021-07-01', '2021-12-31'), nrow(long)/4)),  
+     mzp_date = as.Date(rep(c('2020-04-01', '2020-07-01', '2020-10-01', '2021-01-01',
+                              '2021-04-01', '2021-07-01', '2021-10-01', '2021-12-31'), nrow(long)/8)),  
     # Längsschnitt-Beobachtungsinterval hinzufügen
     int_mzp = case_when( 
-      mzp == 'Jul20' ~ interval(start=as.Date('2020-01-01') , end=as.Date('2020-06-30')),
-      mzp == 'Jan21' ~ interval(start=as.Date('2020-07-01') , end=as.Date('2020-12-31')),
-      mzp == 'Jul21' ~ interval(start=as.Date('2021-01-01') , end=as.Date('2021-06-30')),
-      mzp == 'Ende' ~ interval(start=as.Date('2021-07-01') , end=as.Date('2021-12-31')), 
+      mzp == 'Apr20' ~ interval(start=as.Date('2020-01-01') , end=as.Date('2020-03-31')),
+      mzp == 'Jul20' ~ interval(start=as.Date('2020-04-01') , end=as.Date('2020-06-30')),
+      mzp == 'Okt20' ~ interval(start=as.Date('2020-07-01') , end=as.Date('2020-09-30')),
+      mzp == 'Jan21' ~ interval(start=as.Date('2020-10-01') , end=as.Date('2020-12-31')),
+      mzp == 'Apr21' ~ interval(start=as.Date('2021-01-01') , end=as.Date('2020-03-31')),
+      mzp == 'Jul21' ~ interval(start=as.Date('2021-04-01') , end=as.Date('2021-06-30')),
+      mzp == 'Okt21' ~ interval(start=as.Date('2020-07-01') , end=as.Date('2020-09-30')),
+      mzp == 'Ende' ~ interval(start=as.Date('2021-10-01') , end=as.Date('2021-12-31')), 
       TRUE ~ as.interval(NA)
     ),
   # NA setzen, wenn Beobachtungsdatum nicht im Datenintervall liegt
@@ -421,7 +458,7 @@ tmp <- long %>%
   group_by(mzp, pg_change2) %>%
   tally() %>% 
   rename(freq = n) %>%
-  mutate(mzp_fct = factor(mzp, levels=c('Jul20', 'Jan21', 'Jul21', 'Ende')),
+  mutate(mzp_fct = factor(mzp, levels=c('Apr20', 'Jul20', 'Okt20', 'Jan21', 'Apr21', 'Jul21', 'Okt21', 'Ende')),
          pg_change2 = factor(pg_change2, levels=c('zurückgestuft', 'unverändert', 'hochgestuft', 'Verstorben'))) %>% 
   complete(pg_change2) %>% 
   replace_na(list(freq = 0)) %>% 
@@ -463,7 +500,7 @@ p <- ggplot(tmp, aes(x = mzp, y = freq, fill = pg_change2)) +
 
 p
 
-bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_gesamt.bmp", 
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_gesamt_3Monate.bmp", 
     width = 750, height = 500, type="windows")
 print(p)
 dev.off()
@@ -490,7 +527,7 @@ p <- ggplot(tmp, aes(x = mzp, y = rel, fill = pg_change2)) +
 
 p
 
-bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_gesamt_rel.bmp", 
+bmp(file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_gesamt_3Monate_rel.bmp", 
     width = 750, height = 500, type="windows")
 print(p)
 dev.off()
@@ -499,14 +536,14 @@ dev.off()
 
 
 **Längsschnitt nach Teilgruppen**
-```{r pg_tg, warning=FALSE}
+```{r pg_change_tg, warning=FALSE}
 tmp <- long %>%
   group_by(mzp, pg_change2, TG) %>%
   tally() %>% 
   rename(freq = n) %>%
   ungroup() %>%
   mutate(
-    mzp_fct = factor(mzp, levels=c('Jul20', 'Jan21', 'Jul21', 'Ende')),
+    mzp_fct = factor(mzp, levels=c('Apr20', 'Jul20', 'Okt20', 'Jan21', 'Apr21', 'Jul21', 'Okt21', 'Ende')),
     pg_change2 = factor(pg_change2, levels=c('zurückgestuft', 'unverändert', 'hochgestuft', 'Verstorben')),     
     TG = factor(TG)
     ) %>% 
@@ -555,7 +592,7 @@ for (tg in tgs) {
     legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
 
   # Plot exportieren
-  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt", tg, sep='_'), '.bmp', sep=''),
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_3Monate", tg, sep='_'), '.bmp', sep=''),
       width = 750, height = 500, type="windows")
   print(p1)
   dev.off()
@@ -585,7 +622,7 @@ for (tg in tgs) {
     legend.text = element_text(color="#00386a", family = "Verdana", size = 14))
   
   # Plot exportieren
-  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_rel", tg, sep='_'), '.bmp', sep=''),
+  bmp(paste(paste("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/04_Plots/Längsschnitt_3Monate_rel", tg, sep='_'), '.bmp', sep=''),
       width = 750, height = 500, type="windows")
   print(p1)
   dev.off()
@@ -596,4 +633,11 @@ for (tg in tgs) {
 }
 
 print(plot_list)
+```
+
+```{r pg_change_export}
+list_of_datasets <- list("pg_change_gesamt" = pg_change_gesamt, "pg__change_tg" = pg_change_tg)
+
+write.xlsx(list_of_datasets, 
+           file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/99_Längsschnitt_PG_2020_21_3Monate.xlsx")
 ```
