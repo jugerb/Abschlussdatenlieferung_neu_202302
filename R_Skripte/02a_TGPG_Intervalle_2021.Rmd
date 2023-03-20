@@ -106,19 +106,23 @@ data4a <- data4 %>%
 
 data4a <- data4a %>% 
   filter(n_ID==1) %>% 
-  dplyr::select(V_ID,V_ALTER,V_STERBEDATUM,ZG3, ZG4  )
+  dplyr::select(V_ID,V_ALTER,V_STERBEDATUM,ZG3, ZG4, V_STAPEL)
 
-data11 <- left_join(data10f,data4a, by=c("V_ID"))
+data11 <- left_join(data10f, data4a, by=c("V_ID"))
 ```
 
 ```{r}
 # Ordnung TGs korrigieren (das ist die im vorherigen Skript angekündigte Korrektur)
 data11 <- data11 %>% 
-  dplyr::mutate(TG= if_else(tg==1, "TG1", if_else(tg==2, "TG3", if_else(tg==3, "TG2", if_else(tg==5, "TG5","TG6")))))
+  dplyr::mutate(TG= if_else(tg==1, "TG1",
+                            if_else(tg==2, "TG3",
+                                    if_else(tg==3, "TG2",
+                                            if_else(tg==5 & (V_STAPEL=="2"|V_STAPEL=="1"), "TG4",
+                                                    if_else(tg==5 & (V_STAPEL=="0"), "TG5","TG6"))))))
 
-table(data11$tg, data11$TG)
+table(data11$tg, data11$TG, data11$V_STAPEL)
 
-data11<- data11 %>% 
+data11 <- data11 %>% 
   dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1), 
                 tod = if_else(is.na(V_STERBEDATUM),0,1))
 
@@ -128,7 +132,7 @@ test2 <- dlookr::diagnose(data4)
 
 ```{r}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
-save(data11,file="data11.Rda")
+save(data11, file="data11.Rda")
 ```
 
 Quellen:

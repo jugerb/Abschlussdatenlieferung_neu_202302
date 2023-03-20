@@ -17,7 +17,7 @@ library(dlookr)
 library(table1)
 library(janitor)
 library(openxlsx)
-library(epiDisplay)
+#library(epiDisplay)
 ```
 
 

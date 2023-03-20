@@ -579,7 +579,7 @@ save(data4,file="data4.Rda")
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
 
 load('stamm01.rda')
-# load('tg02.rda') # fehlt noch
+load('tg02.rda')
 load('vz03.rda')
 load('vzpg04.rda')
 load('pl05.rda')
@@ -666,10 +666,10 @@ data2_zg3 <-
   left_join(data1_zg3, vzpg04, by=("V_ID")) %>% 
   dplyr::select(V_ID, V_ALTER, V_STERBEDATUM, ZG3, ZG4, V_ID_PG, V_PFLEGEGRAD, V_PG_VON2, V_PG_BIS2)
 
-### to do: tg02 fehlt ####
 # add Stapelindikator
-# data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
+data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
 ```
+
 
 Versicherungsdaten nach Pflegegrad
 ```{r vz_nach_pg_2021}

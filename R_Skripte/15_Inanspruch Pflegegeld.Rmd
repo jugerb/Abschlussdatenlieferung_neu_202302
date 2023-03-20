@@ -15,7 +15,6 @@ library(tidyverse)
 library(lubridate)
 library(psych)
 library(dlookr)
-#library(table1)
 library(janitor)
 library(openxlsx)
 library(readxl)
@@ -285,8 +284,7 @@ results_alle <- comb_zg3_alle5 %>%
 
 # relevante Variablen für Tabelle
 results_alle <- results_alle %>% 
-  dplyr::select(TG, n_ID, VZ_tage,oKH_Tage, IN_Tage_nurPGeld,IN_Tage_nurSachl,IN_Tage_Kombi, proz_Tage_nurPgeld,
-                proz_Tage_nurSachl, proz_Tage_Kombi, proz_n_PG,proz_n_Kombi)
+  dplyr::select(TG, n_ID, VZ_tage,oKH_Tage, IN_Tage_nurPGeld,IN_Tage_nurSachl,IN_Tage_Kombi, proz_Tage_nurPgeld, proz_Tage_nurSachl, proz_Tage_Kombi, proz_n_PG,proz_n_Kombi)
 ```
 
 
@@ -620,7 +618,8 @@ data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>%
          oKH_Tage=VZ_tage- Verweildauer )
 
 # Tage ohne KH_Aufenthalt 
-data1a_zg3_verweil <- data1a_zg3 %>% group_by( TG, .drop=FALSE) %>% 
+data1a_zg3_verweil <- data1a_zg3 %>% 
+  group_by( TG, .drop=FALSE) %>% 
   summarise( VZ_tage = sum(VZ_tage),
              oKH_Tage = sum(oKH_Tage))
 
@@ -1049,7 +1048,7 @@ data1 <- data1 %>%
          V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD))
 
 # Stammdaten mit Leistungstagen verbinden
-data3e <- left_join(data1,data3d,by=("V_ID"))
+data3e <- left_join(data1, data3d, by=("V_ID"))
 
 data4 <- data3e %>% 
   filter(!(day>END_DATE | day<START_DATE))
@@ -1066,15 +1065,15 @@ data4 <- data4 %>% arrange(V_ID)
 ```{r}
 # Data 1 vorbereiten
 data1a_zg <- data1  %>% group_by(V_ID, TG) %>% 
-  summarise(VZ_tage = sum(intervalldauer ))
+  summarise(VZ_tage = sum(intervalldauer))
 
 data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>% 
-  mutate(Verweildauer= if_else(is.na(Verweildauer),0,Verweildauer ),
-         oKH_Tage=VZ_tage- Verweildauer )
+  mutate(Verweildauer = if_else(is.na(Verweildauer),0, Verweildauer),
+         oKH_Tage = VZ_tage- Verweildauer )
 
 # Tage ohne KH_Aufenthalt 
 data1a_zg3_verweil <- data1a_zg3 %>% group_by( TG, .drop=FALSE) %>% 
-  summarise( VZ_tage = sum(VZ_tage),
+  summarise(VZ_tage = sum(VZ_tage),
              oKH_Tage = sum(oKH_Tage))
 
 
@@ -1086,7 +1085,7 @@ data4_zg3_id <- data1  %>%
   summarise(n_ID = sum(Fall_ja_id))
 
 data4_zg3_id2 <- data4  %>% 
-  filter( geld==1) %>% 
+  filter(geld == 1) %>% 
   group_by(V_ID,TG) %>% 
   summarise(Fall_ja_id = 1) %>% 
   group_by(TG) %>% 
@@ -1094,12 +1093,12 @@ data4_zg3_id2 <- data4  %>%
 
 data4_zg3_r1 <- left_join(data4_zg3_id,data4_zg3_id2, by=c("TG")) %>% 
   mutate_all(~replace(., is.na(.), 0)) %>% 
-  mutate(n_noIN_PGeld=n_ID- n_IN_Pgeld)
+  mutate(n_noIN_PGeld = n_ID- n_IN_Pgeld)
 
 
 ### Nur Pflegegeld auf Tagebasis 
 data4_zg3_tage1_pg <- data4  %>% 
-  filter(sach==0 & geld==1) %>% 
+  filter(sach == 0 & geld == 1) %>% 
   ungroup() %>% 
   group_by(V_ID,TG, day) %>% 
   summarise(ID_ja = 1) %>% 
@@ -1191,8 +1190,7 @@ results_alle <- comb_zg3_alle5 %>%
 
 # relevante Variablen für Tabelle
 results_alle <- results_alle %>% 
-  dplyr::select(TG, n_ID, VZ_tage,oKH_Tage, IN_Tage_nurPGeld,IN_Tage_nurSachl,IN_Tage_Kombi, proz_Tage_nurPgeld,
-                proz_Tage_nurSachl, proz_Tage_Kombi, proz_n_PG,proz_n_Kombi)
+  dplyr::select(TG, n_ID, VZ_tage,oKH_Tage, IN_Tage_nurPGeld,IN_Tage_nurSachl,IN_Tage_Kombi, proz_Tage_nurPgeld,proz_Tage_nurSachl, proz_Tage_Kombi, proz_n_PG,proz_n_Kombi)
 ```
 
 
@@ -1205,7 +1203,8 @@ data1a_zg <- data1  %>%
 
 verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
 
-data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, by=c("V_ID","V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>%  
+data1a_zg3 <- left_join(data1a_zg, verweildauer_pg_TG_tod, 
+                        by=c("V_ID","V_PFLEGEGRAD", "TG","V_ALTER", "tod")) %>%  
   mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer ),
          oKH_Tage = VZ_tage- Verweildauer)
 

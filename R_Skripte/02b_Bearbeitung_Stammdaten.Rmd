@@ -522,7 +522,7 @@ check4 <- check3 %>% group_by(V_ID) %>%
   summarise(n=n()) %>% 
   mutate(exkl=1)
 
-ausschluss_hkp <- check4 %>% select(V_ID,exkl)
+ausschluss_hkp <- check4 %>% dplyr::select(V_ID,exkl)
 ```
 
 ```{r ausschluss_pg_2021}
@@ -544,7 +544,7 @@ check2 <- check %>% group_by(V_ID) %>%
   summarise(n=n()) %>% 
   mutate(exkl=1)
 
-ausschluss_pg <- check2 %>% select(V_ID, exkl)
+ausschluss_pg <- check2 %>% dplyr::select(V_ID, exkl)
 ```
 
 
@@ -568,7 +568,8 @@ help3 <- help2 %>% filter(!(is.na(n)))
 help4 <- help3 %>% filter(END_DATE=="2021-03-31")
 
 ## filter Beginn Juni
-help5 <- help3 %>% filter(START_DATE=="2021-05-01") %>% select(V_ID,TG,START_DATE, END_DATE  )
+help5 <- help3 %>% filter(START_DATE=="2021-05-01") %>% 
+  dplyr::select(V_ID,TG,START_DATE, END_DATE  )
 
 ## wieder verbinden, nun eine Zeile pro Versicherten
 help6 <- left_join(help4, help5, by=c("V_ID", "TG"))
@@ -578,7 +579,7 @@ help7 <- help6 %>% rowwise() %>%
   dplyr::select(-c(START_DATE.x, START_DATE.y,END_DATE.x, END_DATE.y ))
 
 # In Data 11 die 3 irrelevanten alten Intervalle entfernen
-help8 <- help7 %>% select(V_ID) %>% mutate(marker=1)
+help8 <- help7 %>% dplyr::select(V_ID) %>% mutate(marker=1)
 
 data11a <- left_join(data11, help8, by=c("V_ID"))
 
@@ -612,7 +613,7 @@ help13 <- help12 %>% filter(!(is.na(n)))
 help14 <- help13 %>% filter(END_DATE=="2021-06-30")
 
 ## filter Beginn August
-help15 <- help3 %>% filter(START_DATE=="2021-08-01") %>% select(V_ID,TG,START_DATE, END_DATE  )
+help15 <- help3 %>% filter(START_DATE=="2021-08-01") %>% dplyr::select(V_ID,TG,START_DATE, END_DATE  )
 
 ## wieder verbinden, nun eine Zeile pro Versicherten
 help16 <- left_join(help14, help15, by=c("V_ID", "TG"))
@@ -622,7 +623,7 @@ help17 <- help16 %>% rowwise() %>%
   dplyr::select(-c(START_DATE.x, START_DATE.y,END_DATE.x, END_DATE.y ))
 
 # In Data 11 die 3 irrelevanten alten Intervalle entfernen
-help18 <- help17 %>% select(V_ID) %>% mutate(marker=1)
+help18 <- help17 %>% dplyr::select(V_ID) %>% mutate(marker=1)
 
 data11f <- left_join(data11e, help18,by=c("V_ID"))
 
