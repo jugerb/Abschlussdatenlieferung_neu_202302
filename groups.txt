@@ -4,5 +4,5 @@ ZG4: nur Lebende mit vollständigen Daten
 TG1: Bewohner:innen des „Haus Rheinaue“
 TG2: Bewohner:innen in ambulant betreuten Wohngruppen
 TG3: Bewohner:innen in vollstationären Pflegeeinrichtungen
-TG4: Bewohner:innen im „betreuten Wohnen“ (nur in den Analysen für 2020/21)
+TG4: Bewohner:innen im „betreuten Wohnen“ (nur in den Analysen für 2021)
 TG5: Pflegebedürftige Personen in häuslicher Pflege
