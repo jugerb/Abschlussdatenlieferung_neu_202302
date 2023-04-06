@@ -1,0 +1,368 @@
+---
+title: "PG Veränderungen"
+author: "grb"
+date: "2023-03-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(openxlsx)
+```
+
+
+```{r data_load}
+stamm01 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/01_stamm_20-21_2022-07-20 18-55-30.csv')
+tg02 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/02_tg2_20_21_08-04 17-31-03.csv')
+vz03 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/03_vz_20-21_2022-07-20 18-57-44.csv')
+vzpg04 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/04_vz_pg_20-21_2022-07-20 19-01-26.csv')
+pl05 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/05_pflegeleistungen_20-21_2022-07-21 09-25-08.csv')
+plart06 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/06_art_pg_20_21_2212202022-12-20 15-53-22.csv')
+pg07 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/07_pflegegeld_20_21_220722.csv')
+hkp08 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/08_hkp_20-21_2022-07-21 14-31-31.csv')
+hkpgop09 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/09_gop_hkp_20-21_2022-07-21 15-25-41.csv')
+sgbv10 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/10_sgbv_20-21_2022-07-21 15-31-46.csv')
+kh11 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/11_kh_20-21_2022-07-21 15-37-30.csv')
+kht12 <- read.csv('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/02_roh/12_kht_20-21_2022-07-21 15-41-21.csv')
+
+# load('O:/U5279/Routinedaten/Abschlussdatenlieferung20_21/Daten/data11_neu.Rda')
+# dat <- data11_neu
+```
+
+
+# 0. Prep: Fallselektion & Gruppenzuteilung
+```{r prep_vz}
+# Daten in Form bringen
+vz03$V_VZ_VON<- ymd(vz03$V_VZ_VON)
+vz03$V_VZ_BIS<- ymd(vz03$V_VZ_BIS)
+stamm01$V_STERBEDATUM[stamm01$V_STERBEDATUM==""] <- NA
+stamm01$V_STERBEDATUM <- ymd(stamm01$V_STERBEDATUM)
+
+# Versicherungsdauer
+vz03 <- vz03 %>% mutate(versdauer = as.double(V_VZ_BIS - V_VZ_VON))
+
+# kumulative Versicherungsdauer
+vz03a <- vz03 %>%
+  group_by(V_ID) %>%
+  summarise(n = n_distinct(V_VZ_VON),
+            TOTAL = sum(versdauer))
+
+# vollen Datensatz mit Todesdatum verbinden
+vz03b <- left_join(vz03, stamm01, by=("V_ID"))
+vz03b <- vz03b %>% 
+  mutate(dauerbistod = as.double(V_STERBEDATUM - V_VZ_BIS))
+vz03c <- vz03b %>% filter(dauerbistod==0)
+
+# aggregierten Datensatz mit Todesdatum verbinden
+vz03d <- left_join(vz03a, stamm01, by=("V_ID"))
+
+# Versicherungsbeginn adden
+help1 <- vz03 %>% group_by(V_ID) %>% 
+  summarise(erster_beginn = min(V_VZ_VON))
+
+vz03d <- left_join(vz03d, help1, by=("V_ID"))
+
+vz03d<- vz03d %>% 
+  mutate(dauerbistod = as.double(V_STERBEDATUM - erster_beginn), 
+         diff_totaltod = dauerbistod - TOTAL,
+         n_diff_totaltod = diff_totaltod - n + 1, 
+         n_TOTAL = TOTAL + n) # n wegen Überschneidungen als Korrektur
+
+
+# es müssen  vollständige VZ gegeben sein, außer die Person ist verstorben (8 Tage sind die eingeräumte Toleranz)
+# erfüllen Kriterien 
+check1 <- vz03d %>% filter(is.na(V_STERBEDATUM) & n_TOTAL > 722)
+check2 <- vz03d %>% filter(n_diff_totaltod < 8)
+
+# Indikator für verschiedene Gruppen
+vz03d <- vz03d %>% 
+  mutate(ZG3 = ifelse(is.na(V_STERBEDATUM) & n_TOTAL > 722, 1, ifelse(n_diff_totaltod < 8, 1, 0)), 
+         ZG4 = ifelse(is.na(V_STERBEDATUM) & n_TOTAL > 722, 1, 0))
+
+# für spätere Verwendung ablegen
+data1_zg3 <- vz03d %>% filter(ZG3 == 1) # Lebende & Verstorbene
+data1_zg4 <- vz03d %>% filter(ZG4 == 1) # Lebende 
+```
+
+
+
+Teilgruppen nach Wohnform zuordnen
+```{r prep_tg}
+# prep
+plart06$PL_LEISTUNGSART2 <- as.numeric(plart06$PL_LEISTUNGSART)
+plart06$LEISTUNG_VON<- ymd(plart06$LEISTUNG_VON)
+plart06$LEISTUNG_BIS<- ymd(plart06$LEISTUNG_BIS)
+
+# relevante TGs identifizieren
+tmp <- plart06 %>% 
+  filter(PL_LEISTUNGSART == "999" | PL_LEISTUNGSART == "12" | PL_LEISTUNGSART == "05") %>%
+  mutate(TG_Beginn = LEISTUNG_VON) %>% 
+  mutate(TG = case_when(
+    PL_LEISTUNGSART == "999" ~ 1,
+    PL_LEISTUNGSART == "12" ~ 2,
+    PL_LEISTUNGSART == "05" ~ 3, 
+    TRUE ~ 5
+    ))
+
+
+# alle aus HR angucken
+test <- tmp %>% group_by(V_ID) %>% filter(any(TG == 1)) %>% arrange(V_ID, LEISTUNG_VON)
+
+
+# erste TG-Zuordnung behalten (Achtung: dauert eine Weile, da großes df)
+tmp2 <- tmp %>%
+  #arrange(V_ID, LEISTUNG_VON) %>% 
+  group_by(V_ID) %>% 
+  slice_min(order_by = LEISTUNG_VON, n=1) #%>%
+  #distinct(V_ID, .keep_all = TRUE)
+
+# Zuordnung hierarchisch umsetzen
+tmp3 <- tmp2 %>% 
+  group_by(V_ID) %>% 
+    mutate(TG = case_when(
+    any(TG == 1) ~ 1,
+    any(TG == 2) ~ 2,
+    any(TG == 3) ~ 3, 
+    TRUE ~ 5
+    ))
+
+# alle aus HR angucken
+test <- tmp3 %>% group_by(V_ID) %>% filter(any(TG == 1)) %>% arrange(V_ID, LEISTUNG_VON)
+
+tmp3 <- tmp3 %>% distinct(V_ID, .keep_all = TRUE)
+
+# an Stammdatensatz dranhängen
+data2_zg3 <- left_join(data1_zg3, tmp3[c('V_ID', 'TG')], by='V_ID')
+
+# Stapelindikator dranhängen
+data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
+
+
+### TGs final operationalisieren (TG4 & TG5 hinzufügen)
+table(data2_zg3$TG, useNA='always')
+
+data2_zg3 <- data2_zg3 %>% 
+  mutate(TG2 = case_when(
+    !(TG %in% c(1,2,3)) & (V_STAPEL=="2" | V_STAPEL=="1") ~ 4, 
+    is.na(TG) ~ 5,
+    TG %in% c(1,2,3) ~ as.numeric(TG),
+    TRUE ~ as.numeric(6)
+  ))
+
+table(data2_zg3$TG2, useNA='always')
+table(data2_zg3$TG, data2_zg3$TG2, useNA='always')
+
+dat <- data2_zg3 %>% 
+  mutate(TG = paste('TG', TG2, sep='')) %>% 
+  select(-TG2)
+```
+
+
+**PROBLEM?**: ich finde drei Personen weniger aus HR als nach Pauls Datenzuschnitt (vermutlich zunächst in einer anderen TG)
+```{r test}
+# Personen aus HR angucken
+test <- dat %>% filter(TG=='TG1')
+sum(table(test$V_ID)==1)
+
+# alle Leistungsarten für Personen in HR angucken
+test2 <- tmp %>% filter(V_ID %in% test$V_ID) %>% arrange(V_ID, LEISTUNG_VON)
+
+# die frühesten Leistungsarten für Personen in HR angucken
+test3 <- tmp2 %>% filter(V_ID %in% test$V_ID) %>% arrange(V_ID, LEISTUNG_VON)
+```
+
+
+Pflegegrade vorbereiten
+```{r prep_pg}
+# PG df prep
+vzpg04 <- vzpg04 %>% 
+  mutate(across(starts_with('V_PG_'), ~ ymd(.)))
+
+vzpg04$V_PG_VON2 <- vzpg04$V_PG_VON
+vzpg04$V_PG_VON2[vzpg04$V_PG_VON2<"2020-01-01"] <- "2020-01-01"
+
+# spätester Endzeitpunkt 2021-12-31
+vzpg04$V_PG_BIS2 <- vzpg04$V_PG_BIS
+vzpg04$V_PG_BIS2[vzpg04$V_PG_BIS2>"2021-12-31"] <- "2021-12-31"
+
+
+# df mit Sterbedaten vorbereiten (gleiche Bauart wie PG-Tabelle herstellen)
+tmp <- dat %>%
+  mutate(V_STERBEDATUM = ymd(V_STERBEDATUM)) %>% 
+  na.omit() %>% 
+  mutate(V_ID_PG = NA, 
+         V_PFLEGEGRAD = 99,
+         V_PG_BIS = as.Date('9999-12-31')) %>% 
+  select(V_ID, V_ID_PG, V_PFLEGEGRAD, V_PG_VON = V_STERBEDATUM, V_PG_BIS)
+
+# zusammenfügen & in Form bringen  
+pg <- bind_rows(vzpg04, tmp) %>% 
+  group_by(V_ID) %>% 
+  arrange(V_ID, V_PG_VON) %>%
+  ungroup() 
+
+#TG dranhängen
+pg <- left_join(pg, dat[c('V_ID', 'TG')], by='V_ID') %>% 
+  filter(V_ID %in% dat$V_ID)
+
+# Duplikate entfernen
+pg <- pg %>% 
+  distinct(V_ID, V_PFLEGEGRAD, V_PG_VON2, V_PG_BIS2, .keep_all = TRUE)
+```
+
+
+```{r pg_max_days}
+# ersten Pflegegrad am 01.01.2020 bestimmen
+tmp <- pg %>% 
+  group_by(V_ID) %>% 
+  slice_min(order_by = V_PG_VON, n = 1)
+
+# Verteilung der TG auf Pflegegrade am 01.01.2020
+tmp2 <- tmp %>% 
+  group_by(TG, V_PFLEGEGRAD) %>% 
+  tally() %>% 
+  mutate(PG = as.factor(case_when(
+    V_PFLEGEGRAD == 1 ~ 'PG1',
+    V_PFLEGEGRAD == 2 ~ 'PG2',
+    V_PFLEGEGRAD == 3 ~ 'PG3',
+    V_PFLEGEGRAD == 4 ~ 'PG4',
+    V_PFLEGEGRAD == 5 ~ 'PG5',
+    V_PFLEGEGRAD == 99 ~ 'Verstorben'
+  ))) %>%
+  complete(PG) %>% 
+  ungroup() %>%
+  arrange(TG, match(PG, c('PG1', 'PG2', 'PG3', 'PG4', 'PG5', 'Verstorben'))) %>% 
+  select(TG, PG, n) %>%
+  mutate(n = ifelse(is.na(n), 0, n)) %>%
+  group_by(TG) %>% 
+  mutate(vert = n / sum(n, na.rm = TRUE)) %>% 
+  ungroup()
+
+
+### QUALY-Modell von HD umsetzen
+# "N:\Pool\U5200\U5279\ap\AP700 Berichtlegung\Abschlussbericht\QUALY-Modell.xlsx"
+tmp2 <- tmp2 %>% 
+  mutate(
+    # Gewichte für PGs hinzufügen
+    weight = rep(c(0.5, 0.4, 0.3, 0.2, 0.1), 5),
+    # max. Tage roh
+    max_d = n * 731,
+    # max. Tage gewichtet
+    weighted_max_d = max_d * weight
+  )
+
+# QUALY-Datensatz erstellen
+qualy <- tmp2
+```
+
+
+```{r pg_real_days}
+### Anzahl tatsächlicher Tage im PG
+
+# zuerst wieder min und max Datum auf Studienzeitraum setzen
+pg$V_PG_VON2 <- pg$V_PG_VON
+pg$V_PG_VON2[pg$V_PG_VON2<"2020-01-01"] <- "2020-01-01"
+
+pg$V_PG_BIS2 <- pg$V_PG_BIS
+pg$V_PG_BIS2[pg$V_PG_BIS2>"2021-12-31"] <- "2021-12-31"
+
+# Dauer in PG
+pg <- pg %>% 
+  mutate(int=interval(start = pg$V_PG_VON2, end=pg$V_PG_BIS2) / ddays(1) +1) 
+
+# zusammenfassen über TG und PG
+tmp2 <- pg %>%
+  group_by(TG, V_PFLEGEGRAD) %>% 
+  summarise(real_d = sum(int)) %>% 
+  mutate(PG = as.factor(case_when(
+    V_PFLEGEGRAD == 1 ~ 'PG1',
+    V_PFLEGEGRAD == 2 ~ 'PG2',
+    V_PFLEGEGRAD == 3 ~ 'PG3',
+    V_PFLEGEGRAD == 4 ~ 'PG4',
+    V_PFLEGEGRAD == 5 ~ 'PG5',
+    V_PFLEGEGRAD == 99 ~ 'Verstorben')))
+
+# an QUALY-Datensatz dranhängen
+qualy <- full_join(qualy, tmp2[c('TG', 'PG', 'real_d')], by = c('TG', 'PG')) %>% 
+  arrange(TG, match(PG, c('PG1', 'PG2', 'PG3', 'PG4', 'PG5', 'Verstorben'))) %>% 
+  mutate(across(n:real_d, ~ifelse(is.na(.), 0, .))) 
+
+## weitere Berechnungen QUALY-Modell
+qualy <- qualy %>% 
+  # tatsächliche Tage gewichtet
+  mutate(real_weighted_d = real_d * weight) %>%
+  group_by(TG) %>% 
+  # Summen maximale & erreichte Tage 
+    mutate(sum_max_d = sum(max_d), 
+         sum_real_d = sum(real_d)) %>% 
+  # Summe QUALYs (gewichtete maximale & erreichte Tage) pro TG
+  mutate(sum_weighted_max_d = sum(weighted_max_d), 
+         sum_weighted_real_d = sum(real_weighted_d)) %>% 
+  ungroup() %>% 
+  # Anteil tatsächlich erreichter QUALYs pro TG
+  mutate(perc_qualy = sum_weighted_real_d / sum_weighted_max_d)
+```
+
+
+```{r weighted_qualys}
+# # Wichtung nach TG1: wonach soll denn genau normiert werden? 
+gewichte <- qualy %>%
+  filter(TG == "TG1") %>%
+  mutate(weight2 = vert) %>% ###!!!
+  ungroup() %>%
+  select(c("PG","weight2"))
+
+# erneute Verbindung mit Ergebnissen
+qualy <- left_join(qualy, gewichte, by=c("PG")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+
+
+#************************************
+# Wichtung anwenden
+qualy <- qualy %>% 
+  #group_by(TG) %>% 
+  mutate(max_d_w = sum_max_d * weight2,
+         real_d_w =  sum_real_d* weight2)
+
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG) %>% 
+  filter(weight>0) %>% 
+  summarise(oKH_Tage =sum(oKH_Tage),
+            proz_Tage_nurPgeld = sum(proz_Tage_nurPgeld_w),
+            proz_Tage_nurSachl = sum(proz_Tage_nurSachl_w),
+            proz_Tage_Kombi = sum(proz_Tage_Kombi_w))
+
+# for n
+help1 <- left_join(data1,data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% 
+  group_by(TG) %>% 
+  summarise(N = n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+
+```{r qualys_rel}
+# relative Anteile bestimmen 
+#qualy <- qualy %>% 
+
+
+```
+
+
+```{r export}
+write.xlsx(qualy, 
+           file = "N:/Pool/U5200/U5279/ap/AP700 Berichtlegung/Abschlussbericht/qualy_analysis_20230331.xlsx", 
+           overwrite=FALSE)
+```
+
+
