@@ -160,8 +160,6 @@ dat <- data2_zg3 %>%
   select(-TG2)
 ```
 
-
-**PROBLEM?**: ich finde drei Personen weniger aus HR als nach Pauls Datenzuschnitt (vermutlich zunächst in einer anderen TG)
 ```{r test}
 # Personen aus HR angucken
 test <- dat %>% filter(TG=='TG1')
@@ -204,13 +202,65 @@ pg <- bind_rows(vzpg04, tmp) %>%
   arrange(V_ID, V_PG_VON) %>%
   ungroup() 
 
-#TG dranhängen
+# TG dranhängen
 pg <- left_join(pg, dat[c('V_ID', 'TG')], by='V_ID') %>% 
   filter(V_ID %in% dat$V_ID)
 
 # Duplikate entfernen
 pg <- pg %>% 
   distinct(V_ID, V_PFLEGEGRAD, V_PG_VON2, V_PG_BIS2, .keep_all = TRUE)
+
+
+# zuerst wieder min und max Datum auf Studienzeitraum setzen
+pg$V_PG_VON2 <- pg$V_PG_VON
+pg$V_PG_VON2[pg$V_PG_VON2<"2020-01-01"] <- "2020-01-01"
+
+pg$V_PG_BIS2 <- pg$V_PG_BIS
+pg$V_PG_BIS2[pg$V_PG_BIS2>"2021-12-31"] <- "2021-12-31"
+
+
+### Datum korrigieren (damit Tage nicht mehr doppelt gezählt werden)
+pg <- pg %>% 
+  group_by(V_ID) %>%
+  # korrigieren wenn nächstes Datum von und voreriges Datum bis gleich sind
+  mutate(V_PG_BIS3 = ifelse(lead(V_PG_VON2) == V_PG_BIS2, as_date(V_PG_BIS2 - 1), as_date(V_PG_BIS2))) %>% 
+  ungroup() %>%
+  mutate(V_PG_BIS3 = ifelse(is.na(V_PG_BIS3), V_PG_BIS2, V_PG_BIS3))
+
+pg$V_PG_BIS3 <- as.Date(pg$V_PG_BIS3, origin = "1970-01-01")
+```
+
+
+```{r death_days}
+# Wie viele Tage gehen durch Tod verloren?? 
+# (gezählt in dem PG, in dem der Tod eintritt)
+
+death_days <- pg %>% 
+  group_by(V_ID) %>% 
+  # vorherigen Pflegegrad (vor dem Tod) bestimmen
+  mutate(PG = lag(V_PFLEGEGRAD, default = NA)) %>% 
+  ungroup() %>% 
+  filter(V_PFLEGEGRAD == 99)
+
+death_days <- death_days %>% 
+  # Tage lost to death berechen
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>% 
+  # aggregieren und für späteres anhängen an qualy df vorbereiten
+  group_by(TG, PG) %>% 
+  summarise(death_d = sum(int)) %>% 
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
+
+
+### Todestage anhand des initialen PG berechnen
+death_days2 <- pg %>% 
+  # Tage lost to death berechen
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>% 
+  group_by(V_ID) %>% 
+  mutate(PG = V_PFLEGEGRAD[which.min(V_PG_VON)]) %>% 
+  filter(V_PFLEGEGRAD == 99) %>% 
+  group_by(TG, PG) %>% 
+  summarise(death_d2 = sum(int)) %>% 
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
 ```
 
 
@@ -222,6 +272,7 @@ tmp <- pg %>%
 
 # Verteilung der TG auf Pflegegrade am 01.01.2020
 tmp2 <- tmp %>% 
+  filter(V_PFLEGEGRAD != 99) %>%
   group_by(TG, V_PFLEGEGRAD) %>% 
   tally() %>% 
   mutate(PG = as.factor(case_when(
@@ -260,108 +311,168 @@ qualy <- tmp2
 
 
 ```{r pg_real_days}
-### Anzahl tatsächlicher Tage im PG
-
-# zuerst wieder min und max Datum auf Studienzeitraum setzen
-pg$V_PG_VON2 <- pg$V_PG_VON
-pg$V_PG_VON2[pg$V_PG_VON2<"2020-01-01"] <- "2020-01-01"
-
-pg$V_PG_BIS2 <- pg$V_PG_BIS
-pg$V_PG_BIS2[pg$V_PG_BIS2>"2021-12-31"] <- "2021-12-31"
-
 # Dauer in PG
-pg <- pg %>% 
-  mutate(int=interval(start = pg$V_PG_VON2, end=pg$V_PG_BIS2) / ddays(1) +1) 
+pg <- pg %>%
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) 
 
 # zusammenfassen über TG und PG
-tmp2 <- pg %>%
-  group_by(TG, V_PFLEGEGRAD) %>% 
-  summarise(real_d = sum(int)) %>% 
-  mutate(PG = as.factor(case_when(
-    V_PFLEGEGRAD == 1 ~ 'PG1',
-    V_PFLEGEGRAD == 2 ~ 'PG2',
-    V_PFLEGEGRAD == 3 ~ 'PG3',
-    V_PFLEGEGRAD == 4 ~ 'PG4',
-    V_PFLEGEGRAD == 5 ~ 'PG5',
-    V_PFLEGEGRAD == 99 ~ 'Verstorben')))
+tmp3 <- pg %>%
+  filter(V_PFLEGEGRAD != 99) %>%
+  group_by(TG, V_PFLEGEGRAD) %>%
+  summarise(real_d = sum(int)) %>%
+  mutate(PG = as.factor(paste('PG', V_PFLEGEGRAD, sep=''))) 
 
 # an QUALY-Datensatz dranhängen
-qualy <- full_join(qualy, tmp2[c('TG', 'PG', 'real_d')], by = c('TG', 'PG')) %>% 
-  arrange(TG, match(PG, c('PG1', 'PG2', 'PG3', 'PG4', 'PG5', 'Verstorben'))) %>% 
+qualy <- full_join(qualy, tmp3[c('TG', 'PG', 'real_d')], by = c('TG', 'PG')) %>% 
+  arrange(TG, match(PG, c('PG1', 'PG2', 'PG3', 'PG4', 'PG5'))) %>% 
   mutate(across(n:real_d, ~ifelse(is.na(.), 0, .))) 
+
+# Todestage dranhängen
+qualy <- full_join(qualy, death_days[c('TG', 'PG', 'death_d')], by = c('TG', 'PG')) %>% 
+  mutate(death_d = ifelse(is.na(death_d), 0, death_d))
+
+qualy <- full_join(qualy, death_days2[c('TG', 'PG', 'death_d2')], by = c('TG', 'PG')) %>% 
+  mutate(death_d2 = ifelse(is.na(death_d2), 0, death_d2))
 
 ## weitere Berechnungen QUALY-Modell
 qualy <- qualy %>% 
   # tatsächliche Tage gewichtet
-  mutate(real_weighted_d = real_d * weight) %>%
+  mutate(weighted_real_d = real_d * weight) %>%
   group_by(TG) %>% 
   # Summen maximale & erreichte Tage 
     mutate(sum_max_d = sum(max_d), 
-         sum_real_d = sum(real_d)) %>% 
+         sum_real_d = sum(real_d), 
+         sum_death_d = sum(death_d)) %>% 
   # Summe QUALYs (gewichtete maximale & erreichte Tage) pro TG
   mutate(sum_weighted_max_d = sum(weighted_max_d), 
-         sum_weighted_real_d = sum(real_weighted_d)) %>% 
+         sum_weighted_real_d = sum(weighted_real_d)) %>% 
   ungroup() %>% 
   # Anteil tatsächlich erreichter QUALYs pro TG
-  mutate(perc_qualy = sum_weighted_real_d / sum_weighted_max_d)
+  mutate(perc_qualy = weighted_real_d / weighted_max_d,
+         perc_qualy_tg = sum_weighted_real_d / sum_weighted_max_d)
 ```
+
+
+```{r}
+### Normierungs-Datensatz erstellen
+norm <- tmp2
+
+### Anzahl tatsächlicher Tage im PG
+pg1_days <- pg %>% 
+  group_by(V_ID) %>% 
+  # ersten PG bestimmen
+  mutate(PG = V_PFLEGEGRAD[which.min(V_PG_VON)]) %>% 
+  filter(V_PFLEGEGRAD == 1) %>% 
+  # Tage im PG 1 berechen
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>%
+  # aggregieren und für späteres anhängen an qualy df vorbereiten
+  group_by(TG, PG) %>% 
+  summarise(pg1_d = sum(int)) %>%
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
+
+pg2_days <- pg %>% 
+  group_by(V_ID) %>% 
+  mutate(PG = V_PFLEGEGRAD[which.min(V_PG_VON)]) %>%
+  filter(V_PFLEGEGRAD == 2) %>% 
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>% 
+  group_by(TG, PG) %>% 
+  summarise(pg2_d = sum(int)) %>% 
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
+
+pg3_days <- pg %>% 
+  group_by(V_ID) %>% 
+  mutate(PG = V_PFLEGEGRAD[which.min(V_PG_VON)]) %>%
+  filter(V_PFLEGEGRAD == 3) %>% 
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>% 
+  group_by(TG, PG) %>% 
+  summarise(pg3_d = sum(int)) %>% 
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
+
+pg4_days <- pg %>% 
+  group_by(V_ID) %>% 
+  mutate(PG = V_PFLEGEGRAD[which.min(V_PG_VON)]) %>%
+  filter(V_PFLEGEGRAD == 4) %>% 
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>% 
+  group_by(TG, PG) %>% 
+  summarise(pg4_d = sum(int)) %>% 
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
+
+pg5_days <- pg %>% 
+  group_by(V_ID) %>% 
+  mutate(PG = V_PFLEGEGRAD[which.min(V_PG_VON)]) %>%
+  filter(V_PFLEGEGRAD == 5) %>% 
+  mutate(int=interval(start = V_PG_VON2, end=V_PG_BIS2) / ddays(1)) %>%  #+1
+  #  und für späteres anhängen an qualy df vorbereiten
+  group_by(TG, PG) %>% 
+  summarise(pg5_d = sum(int)) %>% 
+  mutate(PG = as.factor(paste('PG', PG, sep=''))) 
+
+### Teildatensätze an norm dranhängen
+norm <- norm %>% left_join(., pg1_days, by=c('TG', 'PG')) %>% 
+  left_join(., pg2_days, by=c('TG', 'PG')) %>% 
+  left_join(., pg3_days, by=c('TG', 'PG')) %>% 
+  left_join(., pg4_days, by=c('TG', 'PG')) %>% 
+  left_join(., pg5_days, by=c('TG', 'PG')) %>% 
+  left_join(., death_days2, by=c('TG', 'PG')) %>% 
+  mutate_at(vars(pg1_d:death_d2), ~replace_na(., 0)) %>% 
+  #rowwise() %>% 
+  mutate(check = rowSums(select(.,pg1_d:death_d2)),
+         invalid_days = max_d-check)
+
+norm <- norm %>% 
+  select(TG:max_d, invalid_days, pg1_d:death_d2) %>% 
+  mutate(check_sum = rowSums(select(.,invalid_days:death_d2)))
+```
+
 
 
 ```{r weighted_qualys}
-# # Wichtung nach TG1: wonach soll denn genau normiert werden? 
-gewichte <- qualy %>%
-  filter(TG == "TG1") %>%
-  mutate(weight2 = vert) %>% ###!!!
-  ungroup() %>%
-  select(c("PG","weight2"))
-
-# erneute Verbindung mit Ergebnissen
-qualy <- left_join(qualy, gewichte, by=c("PG")) %>%
-  mutate_all(~replace(., is.na(.), 0))
-
+# # # Wichtung nach TG1: wonach soll denn genau normiert werden? 
+# gewichte <- qualy %>%
+#   filter(TG == "TG1") %>%
+#   mutate(weight2 = vert) %>% ###!!!
+#   ungroup() %>%
+#   select(c("PG","weight2"))
+# 
+# # erneute Verbindung mit Ergebnissen
+# qualy <- left_join(qualy, gewichte, by=c("PG")) %>%
+#   mutate_all(~replace(., is.na(.), 0))
 
 
 #************************************
-# Wichtung anwenden
-qualy <- qualy %>% 
-  #group_by(TG) %>% 
-  mutate(max_d_w = sum_max_d * weight2,
-         real_d_w =  sum_real_d* weight2)
-
-
-#finale Werte
-data7 <- data6b %>% 
-  group_by(TG) %>% 
-  filter(weight>0) %>% 
-  summarise(oKH_Tage =sum(oKH_Tage),
-            proz_Tage_nurPgeld = sum(proz_Tage_nurPgeld_w),
-            proz_Tage_nurSachl = sum(proz_Tage_nurSachl_w),
-            proz_Tage_Kombi = sum(proz_Tage_Kombi_w))
-
-# for n
-help1 <- left_join(data1,data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
-  filter(!(is.na(weight)))
-
-n_weight <- help1 %>% 
-  group_by(TG) %>% 
-  summarise(N = n_distinct(V_ID))
-
-# zusammenführen
-results_weight <- left_join(n_weight, data7, by=c("TG"))
+# # Wichtung anwenden
+# qualy <- qualy %>% 
+#   #group_by(TG) %>% 
+#   mutate(max_d_w = sum_max_d * weight2,
+#          real_d_w =  sum_real_d* weight2)
+# 
+# 
+# #finale Werte
+# data7 <- data6b %>% 
+#   group_by(TG) %>% 
+#   filter(weight>0) %>% 
+#   summarise(oKH_Tage =sum(oKH_Tage),
+#             proz_Tage_nurPgeld = sum(proz_Tage_nurPgeld_w),
+#             proz_Tage_nurSachl = sum(proz_Tage_nurSachl_w),
+#             proz_Tage_Kombi = sum(proz_Tage_Kombi_w))
+# 
+# # for n
+# help1 <- left_join(data1,data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+#   filter(!(is.na(weight)))
+# 
+# n_weight <- help1 %>% 
+#   group_by(TG) %>% 
+#   summarise(N = n_distinct(V_ID))
+# 
+# # zusammenführen
+# results_weight <- left_join(n_weight, data7, by=c("TG"))
 ```
-
-
-```{r qualys_rel}
-# relative Anteile bestimmen 
-#qualy <- qualy %>% 
-
-
-```
-
 
 ```{r export}
-write.xlsx(qualy, 
-           file = "N:/Pool/U5200/U5279/ap/AP700 Berichtlegung/Abschlussbericht/qualy_analysis_20230331.xlsx", 
+list_of_datasets <- list("qualy" = qualy, "norm" = norm)
+
+write.xlsx(list_of_datasets, 
+           file = "N:/Pool/U5200/U5279/ap/AP700 Berichtlegung/Abschlussbericht/qualy_analysis_20230413.xlsx", 
            overwrite=FALSE)
 ```
 
