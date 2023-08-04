@@ -165,3 +165,49 @@ save(kh11,file="kh11.rda")
 save(kht12,file="kht12.rda")
 
 
+#### 2022 ####
+setwd('O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/01_roh/2022_roh')
+
+stamm01 <-  read.csv("01_stamm_2022_2023-06-09 10-55-34.csv", sep=",")
+tg02 <-  read.csv("02_tg_2022_2023-06-15 13-25-58.csv", sep=",")
+vz03 <-  read.csv("03_vz_2022_2023-06-09 10-57-56.csv", sep=",")
+vzpg04 <-  read.csv("04_vz_pg_2022_csv2023-06-09 11-00-23.csv", sep=",")
+pl05 <-  read.csv("05_pflegeleistung_2022_2023-06-09 11-11-14.csv", sep=",")
+plart06 <-  read.csv("06_art_pg_2022_2023-06-09 11-21-11.csv", sep=",")
+pg07 <-  read.csv("07_pflegegeld_2022_2023-06-09 11-34-42.csv", sep=",")
+hkp08 <-  read.csv("08_hkp_2022_2023-06-09 11-41-39.csv", sep=",")
+hkpgop09 <-  read.csv("09_hkp_2022_2023-06-09 12-01-24.csv", sep=",")
+hkpmedi09 <-  read.csv("09_hkp_medi_2022_2023-06-09 12-06-35.csv", sep=",")
+sgbv10 <-  read.csv("10_sgbv_2022_2023-06-09 12-11-03.csv", sep=",")
+kh11 <-  read.csv("11_kh_2022_2023-06-09 12-12-40.csv", sep=",")
+kht12 <-  read.csv("12_kht_2022_2023-06-09 12-14-30.csv", sep=",")
+
+# #Probleme mit HKP_GOPS, daher hier nochmal quick check
+# #hkpgops
+# sum(hkpgop09$HKP_FALLNR %in% hkp08$HKP_FALLNR)
+# sum(hkp08$HKP_FALLNR %in% hkpgop09$HKP_FALLNR)
+# table(hkpgop09$HKP_GOP)
+# 
+# #hkpmedis
+# sum(hkpmedi09$HKP_FALLNR %in% hkp08$HKP_FALLNR)
+# sum(hkp08$HKP_FALLNR %in% hkpmedi09$HKP_FALLNR)
+# table(hkpmedi09$HKP_GOP)
+
+# data save
+setwd('O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022')
+
+save(stamm01,file="stamm01.rda")
+save(tg02,file="tg02.rda")
+save(vz03,file="vz03.rda")
+save(vzpg04,file="vzpg04.rda")
+save(pl05,file="pl05.rda")
+save(plart06,file="plart06.rda")
+save(pg07,file="pg07.rda")
+save(hkp08,file="hkp08.rda")
+save(hkpgop09,file="hkpgop09.rda")
+save(hkpmedi09,file="hkpmedi09.rda")
+save(sgbv10,file="sgbv10.rda")
+save(kh11,file="kh11.rda")
+save(kht12,file="kht12.rda")
+
+

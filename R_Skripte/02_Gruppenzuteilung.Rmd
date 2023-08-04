@@ -87,7 +87,6 @@ data1_zg3 <- vz03d %>% filter(ZG3 == 1) # 2019 Lebende & Verstorbene
 data1_zg4 <- vz03d %>% filter(ZG4 == 1) # Lebende 
 ```
 
-
 ### nach Pflegegrad
 ```{r groups_pflegegrad_2019}
 # Datumsangaben in Form bringen
@@ -96,10 +95,10 @@ vzpg04$V_PG_BIS<- ymd(vzpg04$V_PG_BIS)
 
 # spätesten Start- und Endzeitpunkt setzen
 vzpg04$V_PG_VON2 <- vzpg04$V_PG_VON
-vzpg04$V_PG_VON2[vzpg04$V_PG_VON2 < "2019-01-01"] <- "2019-01-01"
+vzpg04$V_PG_VON2[vzpg04$V_PG_VON2 < "2020-01-01"] <- "2020-01-01"
 
 vzpg04$V_PG_BIS2 <- vzpg04$V_PG_BIS
-vzpg04$V_PG_BIS2[vzpg04$V_PG_BIS2 > "2019-12-31"] <- "2019-12-31"
+vzpg04$V_PG_BIS2[vzpg04$V_PG_BIS2 > "2021-12-31"] <- "2021-12-31"
 
 
 # verbinde Pflegegrad mit Datensatz Versicherungszeiten
@@ -107,9 +106,8 @@ data2_zg3 <-
   left_join(data1_zg3, vzpg04, by=("V_ID")) %>% 
   dplyr::select(V_ID, V_ALTER, V_STERBEDATUM, ZG3, ZG4, V_ID_PG, V_PFLEGEGRAD, V_PG_VON2, V_PG_BIS2)
 
-### to do: tg02 fehlt ####
 # add Stapelindikator
-# data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
+data2_zg3 <- left_join(data2_zg3, tg02, by=("V_ID"))
 ```
 
 Versicherungsdaten nach Pflegegrad
@@ -155,7 +153,7 @@ vzpg04d <- vzpg04d %>%
                 n_TOTAL=TOTAL+n) # n wegen Überschneidungen als Korrektur
 
 
-#Filter nach Tod in jahr 1 mit voller Versicherungszeit und voller Versicherungszeit
+# Filter nach Tod in jahr 1 mit voller Versicherungszeit und voller Versicherungszeit
 # erfüllen Kriterien (hier nicht essentiell)
 check1 <- vzpg04d %>% filter(is.na(V_STERBEDATUM)& n_TOTAL > 357) #ursprünglich 722
 check2 <- vzpg04d %>% filter(n_diff_totaltod < 8)
