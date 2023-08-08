@@ -364,6 +364,11 @@ ausschluss_pg <- check2 %>% dplyr::select(V_ID, exkl)
 ```
 
 
+```{r}
+table(plart06$PL_LEISTUNGSART, month(plart06$LEISTUNG_VON))
+month(plart06$LEISTUNG_VON)
+```
+
 ```{r cleaning_2020}
 # erstes Mengengerüst Fallzahl & Behandlungstage nach TG
 data11 <- data11 %>% dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1))
@@ -548,6 +553,11 @@ ausschluss_pg <- check2 %>% dplyr::select(V_ID, exkl)
 ```
 
 
+```{r}
+table(plart06$PL_LEISTUNGSART, month(plart06$LEISTUNG_VON))
+month(plart06$LEISTUNG_VON)
+```
+
 
 ```{r cleaning_2021}
 #*************
@@ -723,16 +733,267 @@ sum4a <- data11l %>% ungroup() %>%
 sum4 <- bind_rows(sum4, sum4a)
 ```
 
+# 2022
+```{r data_load_2022, message=FALSE, warning=FALSE}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022")
 
-```{r save&descr_2021}
+load('stamm01.rda')
+load('vz03.rda')
+load('vzpg04.rda')
+load('pl05.rda')
+load('plart06.rda')
+load('pg07.rda')
+load('hkp08.rda')
+load('hkpgop09.rda')
+load('sgbv10.rda')
+load('kh11.rda')
+load('kht12.rda')
+
+load("data11.Rda")
+```
+
+
+```{r ausschluss_hkp_2022}
+hkp08$HKP_FALLNR <- as.character(hkp08$HKP_FALLNR)
+hkpgop09$HKP_FALLNR <- as.character(hkpgop09$HKP_FALLNR)
+#table(hkpgop09$HKP_GOP)
+
+check1 <- left_join(hkp08, hkpgop09, by=c("V_ID","HKP_FALLNR"))
+
+check2 <- check1 %>%
+  mutate(HKP_GOP_12 = substr(HKP_GOP, 0, 2),
+         HKP_GOP_3 = substr(HKP_GOP, 3, 3),
+         HKP_GOP_456 = substr(HKP_GOP, 4, 6))
+
+# alle Ausschlussbedingungen, um Personen mit Intensivpflege zu entfernen
+check3 <- check2 %>% 
+  filter(HKP_GOP_3 == 'A' | 
+           HKP_GOP %in% intensiv_voll | 
+           HKP_GOP_456 %in% intensiv_456 | 
+           HKP_GESKOSTEN < (-100))
+
+# nach ID zusammenfassen
+check4 <- check3 %>% group_by(V_ID) %>% 
+  summarise(n=n()) %>% 
+  mutate(exkl=1)
+
+ausschluss_hkp <- check4 %>% dplyr::select(V_ID,exkl)
+```
+
+```{r ausschluss_pg_2022}
+# Herkunft des Codes siehe hier: "O:\U5279\Routinedaten\Abschlussdatenlieferung20_21\R-Skripte\19_Kosten_Pflegegeld_v2.Rmd"
+pg07$LEISTUNG_VON<- ymd(pg07$LEISTUNG_VON)
+pg07$LEISTUNG_BIS<- ymd(pg07$LEISTUNG_BIS)
+
+# Datensatz für Analysen erstellen
+help1a <- pg07 %>% arrange(V_ID) %>% filter(GEBPOS_KURZ_NEU=="Geld")
+
+# ID für Zahlungen erstellen
+help1 <- help1a %>% mutate(pg_id=row_number())
+
+# Exklusion ab bestimmter Höhe (300 da ab dort viele Fälle, Intensivziffer wird mit über 300 abgerechnet)
+check <- help1 %>% filter(ZAHLBETRAG > 2000 | ZAHLBETRAG < (-2000))
+
+# nach ID zusammenfassen
+check2 <- check %>% group_by(V_ID) %>% 
+  summarise(n=n()) %>% 
+  mutate(exkl=1)
+
+ausschluss_pg <- check2 %>% dplyr::select(V_ID, exkl)
+```
+
+
+```{r}
+table(plart06$PL_LEISTUNGSART, month(plart06$LEISTUNG_VON))
+month(plart06$LEISTUNG_VON)
+```
+
+```{r cleaning_2022}
+#*************
+#Start Bereinigung TG1 
+# IDs mit TG1 filtern
+help1 <- data11 %>% filter(TG=="TG1") %>% 
+  group_by(V_ID) %>% 
+  summarise(n=n())
+
+help2 <- left_join(data11, help1,by=c("V_ID"))
+help3 <- help2 %>% filter(!(is.na(n)))
+
+
+#*************
+#Bereinigung fehlende Daten August
+
+## filter Ende Juli
+help4 <- help3 %>% filter(END_DATE=="2022-07-31")
+
+## filter Beginn September
+help5 <- help3 %>% filter(START_DATE=="2022-09-01") %>% 
+  dplyr::select(V_ID,TG,START_DATE, END_DATE  )
+
+## wieder verbinden, nun eine Zeile pro Versicherten
+help6 <- left_join(help4, help5, by=c("V_ID", "TG"))
+help7 <- help6 %>% rowwise() %>%  
+  mutate(START_DATE=min(START_DATE.x, START_DATE.y),
+         END_DATE=max(END_DATE.x, END_DATE.y)) %>% 
+  dplyr::select(-c(START_DATE.x, START_DATE.y,END_DATE.x, END_DATE.y ))
+
+# In Data 11 die 3 irrelevanten alten Intervalle entfernen
+help8 <- help7 %>% dplyr::select(V_ID) %>% mutate(marker=1)
+
+data11a <- left_join(data11, help8, by=c("V_ID"))
+
+data11b <- data11a %>% 
+  filter((marker == 1 & (END_DATE == "2022-07-31"|
+                         START_DATE == "2022-08-01"|
+                         START_DATE == "2022-09-01"))) %>% 
+  dplyr::select(V_ID,START_DATE, END_DATE,marker ) 
+
+data11c <- left_join(data11, data11b, by=c("V_ID", "START_DATE", "END_DATE"))
+data11d <- data11c %>% filter(is.na(marker))
+
+# neuen Intervalle einfügen
+data11e <- bind_rows(data11d, help7) %>% dplyr::select(-c(n, marker))
+
+# neu eingefügt 
+data11e <- data11e %>% filter(!is.na(START_DATE))
+
+
+#*************
+#Bereinigung fehlende Daten Dezember
+# IDs mit TG1 filtern (schon mit neuem Datensatz)
+help11 <- data11e %>% filter(TG=="TG1") %>% 
+  group_by(V_ID) %>% 
+  summarise(n=n())
+
+help12 <- left_join(data11e, help11,by=c("V_ID"))
+help13 <- help12 %>% filter(!(is.na(n)))
+
+## filter Ende November
+help14 <- help13 %>% filter(END_DATE=="2022-11-30")
+
+# ## filter Beginn Januar
+# help15 <- help3 %>% filter(START_DATE=="2023-01-01") %>% 
+#   dplyr::select(V_ID,TG,START_DATE, END_DATE)
+
+## wieder verbinden, nun eine Zeile pro Versicherten
+#help16 <- left_join(help14, help15, by=c("V_ID", "TG"))
+
+#help17 <- help16 %>% rowwise() %>%  
+  #mutate(START_DATE = min(START_DATE.x, START_DATE.y),
+  #       END_DATE = max(END_DATE.x, END_DATE.y)) %>% 
+  #dplyr::select(-c(START_DATE.x, START_DATE.y,END_DATE.x, END_DATE.y ))
+
+# In Data 11 die 3 irrelevanten alten Intervalle entfernen
+help18 <- help14 %>% dplyr::select(V_ID) %>% mutate(marker=1)
+
+data11f <- left_join(data11e, help18, by=c("V_ID"))
+
+data11g <- data11f %>% 
+  filter((marker==1 & (END_DATE == "2022-11-30"| START_DATE == "2022-12-01" ))) %>%  #| START_DATE == "2023-01-01"
+  dplyr::select(V_ID,START_DATE, END_DATE,marker ) 
+
+data11h <- left_join(data11e, data11g, by=c("V_ID","START_DATE", "END_DATE"))
+data11i <- data11h %>% filter(is.na(marker))
+
+# neuen Intervalle einfügen
+data11j <- bind_rows(data11i, help14) %>% dplyr::select(-c(n, marker))
+
+
+
+#*************
+#Datencheck
+
+# IDs mit TG1 filtern
+help21 <- data11j %>% filter(TG=="TG1") %>% 
+  group_by(V_ID) %>% 
+  summarise(n=n())
+
+help22 <- left_join(data11j, help21,by=c("V_ID"))
+help23 <- help22 %>% filter(!(is.na(n)))
+
+# erste Zusammenfassung
+data11j <- data11j %>% 
+  dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1))
+
+#table(data11j$intervalldauer, useNA = 'always')
+sum1 <- data11j %>% group_by(TG) %>% 
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer))
+
+sum1a <- data11j %>% ungroup() %>% 
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer)) %>%  
+  mutate(TG = "alle")
+
+sum1 <- bind_rows(sum1, sum1a)
+
+
+
+#*************
+# Ausschluss Altersgruppen unter 60 Jahren 
+table(data11j$V_ALTER)
+data11j2 <- data11j %>% 
+  filter(!(V_ALTER==1 | V_ALTER==2))
+
+table(data11j2$V_ALTER)
+
+sum2 <- data11j2 %>% group_by(TG) %>% 
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer))
+
+sum2a <- data11j2 %>% ungroup() %>% 
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer)) %>%  mutate(TG="alle")
+
+sum2 <- bind_rows(sum2, sum2a)
+
+
+#*************
+# Auschluss a.G. von Pflegegeld
+data11k <- left_join(data11j2, ausschluss_pg, by=c("V_ID"))
+data11k <- data11k %>% 
+  filter(is.na(exkl)) %>% 
+  dplyr::select(-c("exkl"))
+
+sum3 <- data11k %>% group_by(TG) %>% 
+  summarise(n= n_distinct(V_ID),
+            bt= sum(intervalldauer))
+
+sum3a <- data11k %>% ungroup() %>% 
+  summarise(n= n_distinct(V_ID),
+            bt= sum(intervalldauer))%>%  mutate(TG="alle")
+
+sum3 <- bind_rows(sum3, sum3a)
+
+
+#*************
+# Auschluss a.G. von HKP
+data11l <- left_join(data11k, ausschluss_hkp, by=c("V_ID"))
+data11l <- data11l %>% 
+  filter(is.na(exkl)) %>% 
+  dplyr::select(-c("exkl"))
+
+sum4 <- data11l %>% group_by(TG) %>% 
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer))
+
+sum4a <- data11l %>% ungroup() %>% 
+  summarise(n = n_distinct(V_ID),
+            bt = sum(intervalldauer)) %>% mutate(TG="alle")
+
+sum4 <- bind_rows(sum4, sum4a)
+```
+
+
+```{r save&descr_2022}
 ### Daten speichern
 # Dauer des Intervalls
 data11_neu <- data11l %>% 
   dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE + 1))
 
 # Daten speichern
-save(data11_neu, file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021/data11_neu.Rda")
+save(data11_neu, file="O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022/data11_neu.Rda")
 
 list_of_datasets <- list("sum1" = sum1, "sum2" = sum2, "sum3" = sum3,  "sum4" = sum4)
-write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/01_Fallzahlen/02b_Fallzahlen2021.xlsx")
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/01_Fallzahlen/02b_Fallzahlen2022.xlsx")
 ```
