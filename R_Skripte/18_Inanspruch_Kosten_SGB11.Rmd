@@ -1439,28 +1439,28 @@ data4_1 <- data4 %>%
 ### einzelne Leistungsarten (nur 01,02,03)
 ```{r message=FALSE}
 # Data 1 vorbereiten
-data1a_zg <- data1%>%  
+data1a_zg <- data1 %>%  
   group_by(V_ID,TG) %>% 
   summarise(VZ_tage = sum(intervalldauer ))
 
 data1a_zg3 <- left_join(data1a_zg, verweildauer_zg3_TG, by=c("V_ID", "TG")) %>%  
-  mutate(Verweildauer = if_else(is.na(Verweildauer),0,Verweildauer),
-         oKH_Tage = VZ_tage- Verweildauer)
+  mutate(Verweildauer = if_else(is.na(Verweildauer), 0, Verweildauer),
+         oKH_Tage = VZ_tage - Verweildauer)
 
 # Tage ohne KH_Aufenthalt 
 data1a_zg3_verweil_1 <- data1a_zg3 %>% 
   group_by( TG, .drop=FALSE) %>% 
   summarise(VZ_tage = sum(VZ_tage),
             oKH_Tage = sum(oKH_Tage),
-            link=1)
+            link = 1)
 
 # für jede Abrechnungsform eine Zeile
-data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11,by=c("link")) %>% 
+data1a_zg3_verweil <- left_join(data1a_zg3_verweil_1, hilfsdatei_SGB11, by=c("link")) %>% 
   dplyr::select(-c(link))
 
 # auf ID-Basis 
 data4_zg3_id <- data4_1  %>%  
-  group_by(V_ID,PL_LEISTUNGSART2,TG) %>% 
+  group_by(V_ID, PL_LEISTUNGSART2, TG) %>% 
   summarise(Fall_ja_id = 1) %>% 
   group_by(PL_LEISTUNGSART2, TG, .drop=FALSE)%>% 
   summarise(n_IN_PL = sum(Fall_ja_id))
@@ -1481,19 +1481,19 @@ data4_zg3_id3 <- left_join(data4_zg3_id2,data4_zg3_id, by=c("TG","PL_LEISTUNGSAR
 
 # Gesamttage mit Leistungen und Tage ohne Leistungen 
 data4_zg3_tage1 <- data4_1  %>%  
-  group_by(V_ID, leistungstag,TG,PL_LEISTUNGSART2 ) %>% 
+  group_by(V_ID, leistungstag, TG, PL_LEISTUNGSART2) %>% 
   summarise(ID_ja = 1) %>% 
-  group_by(TG,PL_LEISTUNGSART2,.drop=FALSE) %>% 
-  summarise(IN_Tage= sum(ID_ja)) 
+  group_by(TG, PL_LEISTUNGSART2, .drop=FALSE) %>% 
+  summarise(IN_Tage = sum(ID_ja)) 
 
-data4_zg3_tage2<- left_join(data1a_zg3_verweil,data4_zg3_tage1,by=c("TG","PL_LEISTUNGSART2")) %>% 
+data4_zg3_tage2<- left_join(data1a_zg3_verweil, data4_zg3_tage1, by=c("TG","PL_LEISTUNGSART2")) %>% 
   mutate_all(~replace(., is.na(.), 0)) %>% 
-  mutate(noIN_Tage = oKH_Tage -IN_Tage) %>% 
-  dplyr::select(-c(VZ_tage,oKH_Tage))
+  mutate(noIN_Tage = oKH_Tage - IN_Tage) %>% 
+  dplyr::select(-c(VZ_tage, oKH_Tage))
 
 # Gesamtkosten 
 data4_zg3_kosten <- data4%>%  
-  group_by(PL_LEISTUNGSART2,TG,.drop=FALSE) %>%
+  group_by(PL_LEISTUNGSART2, TG, .drop=FALSE) %>%
   summarise(SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
             SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
 
@@ -1509,12 +1509,12 @@ data4_zg3_c <- left_join(data4_zg3_b, data4_zg3_kosten, by=c("TG","PL_LEISTUNGSA
 
 # Daten für Tabelle vorbereiten
 results_alle_data_4_1 <- data4_zg3_c %>% 
-  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
-         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,
-         IN_Tage_Jahr = IN_Tage*365/oKH_Tage,
-         proz_n_IN_PL = n_IN_PL/n_ID,
-         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto/IN_Tage,
-         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto/IN_Tage)
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto * 365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto * 365 / oKH_Tage,
+         IN_Tage_Jahr = IN_Tage * 365 / oKH_Tage,
+         proz_n_IN_PL = n_IN_PL / n_ID,
+         Kosten_pro_tag_LE_brutto = SUM_PL_GesKosten_brutto / IN_Tage,
+         Kosten_pro_tag_LE_netto = SUM_PL_GesKosten_netto / IN_Tage)
 
 # relevante Variablen für Tabelle
 results_alle_data_4_1 <- results_alle_data_4_1 %>% 
@@ -1535,8 +1535,8 @@ results_leistungsdaten  <- left_join(data1a_zg3_verweil_1, data4_zg3_kosten2, by
 
 # Daten für Tabelle vorbereiten
 results_leistungsdaten   <- results_leistungsdaten %>% 
-  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto*365/oKH_Tage,
-         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto*365/oKH_Tage,)
+  mutate(PL_GesKosten_jahr_brutto = SUM_PL_GesKosten_brutto * 365 / oKH_Tage,
+         PL_GesKosten_jahr_netto = SUM_PL_GesKosten_netto * 365 / oKH_Tage,)
 ```
 
 
@@ -1882,7 +1882,7 @@ verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung
 verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2022.xlsx",9) 
 
 hilfsdatei_SGB11 <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/hilfsdatei_SGB11.xlsx")
-verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER )
+verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER)
 ```
 
 

@@ -494,7 +494,6 @@ write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferu
 
 
 # 2021
-
 ```{r data_load_2021}
 setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2021")
 
@@ -525,7 +524,7 @@ data1 <- data1 %>%
          V_ALTER = as.factor(V_ALTER))
 ```
 
-```{r kh_prep_2021}
+```{r kh_prep_2021, message=FALSE}
 # Negative Kosten auf O
 kh11$KH_KOSTEN[kh11$KH_KOSTEN<0] <- 0
 
@@ -575,7 +574,7 @@ data4 <- data3e
 
 
 ## Hospitalisierung nach TG
-```{r, warning=FALSE}
+```{r, warning=FALSE, message=FALSE}
 table3_tg <- table3 %>% 
   filter(ZG == "ZG3") %>% 
   dplyr::select(-c(per_oKH_Tage, KH_tage,oKH_Tage, ZG))
@@ -624,7 +623,7 @@ results_alle <- results_alle %>%
 
 
 ## Hospitalisierung nach ZG, PG und TG
-```{r, warning=FALSE}
+```{r, warning=FALSE, message=FALSE}
 table2_PG_TG <- table2  %>% 
   dplyr::select(-c(per_oKH_Tage, KH_tage,oKH_Tage))
 
@@ -725,5 +724,239 @@ results_weight <- left_join(n_weight, data7, by=c("TG"))
 list_of_datasets <- list("results_alle" = results_alle, "results_weight" = results_weight, "weights" = data5b)
 
 write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/22_KH_2021.xlsx")
+```
+
+
+# 2022
+```{r data_load_2022}
+setwd("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022")
+
+load("data11_neu.Rda")
+data1 <- data11_neu
+
+load("kh11.Rda")
+
+table2 <- read.xlsx("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/05_TG_PG_2022.xlsx")
+table3 <- read.xlsx("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/01a_TG_2022.xlsx")
+```
+
+
+```{r data_prep_2022, include = FALSE}
+# Dauer des Intervalls
+data1<- data1 %>% 
+  dplyr::mutate(intervalldauer = as.double(END_DATE - START_DATE +1),
+                tod = if_else(is.na(V_STERBEDATUM),0,1))
+
+# KH-Daten mit Stammdaten verbinden
+kh11$KH_BEGINN_DAT <- ymd(kh11$KH_BEGINN_DAT)
+kh11$KH_ENDE_DAT <- ymd(kh11$KH_ENDE_DAT)
+
+# Faktorvariable für group_by
+data1 <- data1 %>%
+  mutate(TG = as.factor(TG), 
+         V_PFLEGEGRAD = as.factor(V_PFLEGEGRAD), 
+         V_ALTER = as.factor(V_ALTER))
+```
+
+```{r kh_prep_2022, message=FALSE}
+# Negative Kosten auf O
+kh11$KH_KOSTEN[kh11$KH_KOSTEN<0] <- 0
+
+# nur vollstationär behalten, Fälle ohne Entlassdatum entfernen
+kh11a <- kh11  %>%
+  mutate(KH_AUF_ANLASS2 = str_pad(KH_AUF_ANLASS, 4, pad = "0"),
+         KH_AUF_ANLASS_Beg = substr(KH_AUF_ANLASS2, 0, 2),
+         KH_AUF_ANLASS_End = substr(KH_AUF_ANLASS2, 3, 4)) %>% 
+  filter(KH_AUF_ANLASS_Beg == "01") %>% 
+  filter(!(is.na(KH_ENDE_DAT)))
+
+# überschneidende Fälle zusammenführen 
+kh11b <- kh11a %>%
+  arrange(V_ID, KH_BEGINN_DAT) %>% 
+  group_by(V_ID) %>%
+  mutate(indx = c(0, cumsum(as.numeric(lead(KH_BEGINN_DAT )) > cummax(as.numeric(KH_ENDE_DAT )))[-n()])) %>%
+  group_by(V_ID, indx) %>%
+  summarise(KH_BEGINN_DAT2 = min(KH_BEGINN_DAT), 
+            KH_ENDE_DAT2 = max(KH_ENDE_DAT),
+            KOSTEN_ZSF = sum(KH_KOSTEN))
+
+# Kosten und Uhrzeit des ersten Falles betrachten 
+kh11c<-  left_join(kh11b, kh11a, by=c("V_ID", "KH_BEGINN_DAT2"="KH_BEGINN_DAT"))
+
+# bei mehreren Fällen mit Beginn am Aufnahmetag, Fall mit längster Aufenthaltsdauer behalten
+kh11d <- kh11c %>% group_by(V_ID, KH_BEGINN_DAT2) %>% 
+  arrange(desc(KH_ENDE_DAT)) %>% 
+  mutate(n = paste0( row_number())) %>% 
+  filter(n == 1)
+
+# Stammdaten mit Krankenhausdaten verbinden
+data3 <- left_join(data1, kh11d, by=("V_ID"))
+
+# nur Hospitalisierungen berücksichtigen deren Beginn im jeweiligen Beobachtungsintervall liegt
+data3a <- data3 %>% 
+  filter(KH_BEGINN_DAT2 >= START_DATE & KH_BEGINN_DAT2 <= END_DATE) 
+
+# Endatum der Hospitalisierung: Entweder Beobachtungsintervallende oder Entlassung (für Verweildauer)
+data3e <- data3a %>% 
+  filter(!(KH_BEGINN_DAT2 >= END_DATE | KH_ENDE_DAT2 <= START_DATE)) %>%
+  mutate(rel_KH_BEGINN_DAT = KH_BEGINN_DAT2,
+         rel_KH_ENDE_DAT = min(KH_ENDE_DAT2,END_DATE)) %>% 
+  dplyr::mutate(kh_dauer = as.double(KH_ENDE_DAT2- rel_KH_BEGINN_DAT + 1))
+
+data4 <- data3e 
+```
+
+
+## Hospitalisierung nach TG
+```{r, warning=FALSE, message=FALSE}
+table3_tg <- table3 %>% 
+  filter(ZG == "ZG3") %>% 
+  dplyr::select(-c(per_oKH_Tage, KH_tage,oKH_Tage, ZG))
+
+data4$Fall_ja <- 1
+
+
+### auf ID-Basis
+data4_zg3_id <- data4 %>%
+  group_by(V_ID, TG) %>% 
+  summarise(Fall_ja = 1)
+         
+data4_zg3_id2 <- data4_zg3_id %>% 
+  group_by(TG, .drop =FALSE) %>% 
+  summarise(n_KH_Fall = sum(Fall_ja))
+
+# alle Fälle
+data4_zg3_alle <- data4  %>% 
+  group_by( TG) %>% 
+  summarise(KH_Fall = sum(Fall_ja))
+
+# Verweildauer und Kosten 
+data4_zg3_vwk <- data4  %>% 
+  group_by( TG) %>% 
+  summarise(SUM_Verweildauer_KH = sum(kh_dauer),
+            SUM_Kosten_KH = sum(KOSTEN_ZSF))
+
+# alles verbinden
+data4_a <- left_join(table3_tg, data4_zg3_id2,by = "TG")
+data4_b <- left_join(data4_a, data4_zg3_alle,by = "TG")
+data4_c <- left_join(data4_b, data4_zg3_vwk,by = "TG")
+
+# Daten für Tabelle vorbereiten
+results_alle <- data4_c %>% 
+  mutate(Verweildauer_Fall = SUM_Verweildauer_KH/KH_Fall,
+         Kosten_Fall = SUM_Kosten_KH/KH_Fall,
+         proz_KH_Fall = n_KH_Fall/N,
+         KH_Fall_Jahr = KH_Fall*365/VZ_tage, 
+         Verweildauer_KH_Jahr = SUM_Verweildauer_KH*365/VZ_tage,
+         KH_Kosten_Jahr = SUM_Kosten_KH*365/VZ_tage)
+
+# relevante Variablen für Tabelle
+results_alle <- results_alle %>% 
+  dplyr::select(TG, N, VZ_tage, n_KH_Fall, KH_Fall, Verweildauer_Fall, Kosten_Fall, proz_KH_Fall,KH_Fall_Jahr,Verweildauer_KH_Jahr,KH_Kosten_Jahr)
+```
+
+
+## Hospitalisierung nach ZG, PG und TG
+```{r, warning=FALSE, message=FALSE}
+table2_PG_TG <- table2  %>% 
+  dplyr::select(-c(per_oKH_Tage, KH_tage,oKH_Tage))
+
+### auf ID-Basis
+data4_zg3_id <- data4  %>%  
+  group_by(V_ID, V_PFLEGEGRAD, TG,V_ALTER, tod) %>% 
+  summarise(Fall_ja = 1)
+         
+data4_zg3_id2 <- data4_zg3_id %>% 
+  group_by( V_PFLEGEGRAD, TG,V_ALTER, tod, .drop=FALSE) %>% 
+  summarise(n_KH_Fall = sum(Fall_ja))
+
+# alle Fälle 
+data4_zg3_alle <-  data4 %>% 
+  filter(ZG3==1) %>% 
+  group_by(V_PFLEGEGRAD, TG,V_ALTER, tod, .drop=FALSE) %>% 
+  summarise(KH_Fall = sum(Fall_ja))
+
+
+### Verweildauer und Kosten 
+data4_zg3_vwk <- data4  %>% 
+  group_by( V_PFLEGEGRAD, TG,V_ALTER, tod, .drop=FALSE) %>% 
+  summarise(SUM_Verweildauer_KH = sum(kh_dauer),
+         SUM_Kosten_KH = sum(KOSTEN_ZSF))
+
+# alles verbinden
+data4_a <- left_join(table2_PG_TG, data4_zg3_id2,by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))
+data4_b <- left_join(data4_a, data4_zg3_alle,by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))
+data4_c <- left_join(data4_b, data4_zg3_vwk,by=c("V_PFLEGEGRAD", "TG","V_ALTER", "tod"))
+data4_c <- data4_c %>% 
+  mutate_all(~replace(., is.na(.), 0))
+
+# Daten für Tabelle vorbereiten
+data4_d <- data4_c %>% 
+  mutate(proz_KH_Fall = n_KH_Fall/N,
+         KH_Fall_Jahr = KH_Fall*365/VZ_tage,
+         Verweildauer_KH_Jahr = SUM_Verweildauer_KH*365/VZ_tage,
+         KH_Kosten_Jahr = SUM_Kosten_KH*365/VZ_tage)
+
+# relevante Variablen für Tabelle
+results_w <- data4_d %>% 
+  dplyr::select(TG,V_PFLEGEGRAD,V_ALTER, tod, N, VZ_tage, n_KH_Fall, KH_Fall, proz_KH_Fall, KH_Fall_Jahr, Verweildauer_KH_Jahr, KH_Kosten_Jahr)
+```
+
+
+```{r wichtung_2022}
+# zunächst Anzahl der VZ_TAGE pro TG
+data5 <- results_w %>% 
+  group_by(TG) %>% 
+  summarise(days_tg = sum(VZ_tage))
+
+# mit Ergebnise verbinden 
+data5a <- left_join(results_w, data5, by = c("TG"))
+
+# Wichtung nach TG1
+data6 <- data5a %>% 
+  filter(TG=="TG1") %>% 
+  mutate(weight=VZ_tage/days_tg) %>% 
+  select(c("V_PFLEGEGRAD","V_ALTER", "tod","weight"))
+
+data5b <- data5a %>% 
+  filter(TG=="TG1") %>% 
+  mutate(weight=VZ_tage/days_tg) %>% 
+  select(c("V_PFLEGEGRAD","V_ALTER", "tod","days_tg","VZ_tage", "weight"))
+
+# erneute Verbindung mit Ergebnissen
+data6a <- left_join(data5a, data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>%
+  mutate_all(~replace(., is.na(.), 0))
+
+# Wichtung anwenden
+data6b <- data6a %>% 
+  mutate(KH_Fall_Jahr_w= KH_Fall_Jahr * weight,
+         Verweildauer_KH_Jahr_w = Verweildauer_KH_Jahr * weight,
+         SUM_Kosten_KH_w = KH_Kosten_Jahr * weight)
+
+#finale Werte
+data7 <- data6b %>% 
+  group_by(TG) %>% 
+  filter(weight > 0) %>% 
+  summarise(VZ_tage = sum(VZ_tage),
+            KH_Fall_Jahr = sum(KH_Fall_Jahr_w),
+            Verweildauer_KH_Jahr = sum(Verweildauer_KH_Jahr_w),
+            SUM_Kosten_KH = sum(SUM_Kosten_KH_w))
+
+# for n
+help1 <- left_join(data1,data6, by=c("V_PFLEGEGRAD","V_ALTER", "tod")) %>% 
+  filter(!(is.na(weight)))
+
+n_weight <- help1 %>% 
+  group_by(TG) %>% 
+  summarise(N = n_distinct(V_ID))
+
+# zusammenführen
+results_weight <- left_join(n_weight, data7, by=c("TG"))
+```
+
+```{r export_2022}
+list_of_datasets <- list("results_alle" = results_alle, "results_weight" = results_weight, "weights" = data5b)
+
+write.xlsx(list_of_datasets, file = "O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/22_KH_2022.xlsx")
 ```
 

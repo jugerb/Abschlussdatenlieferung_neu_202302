@@ -1,0 +1,58 @@
+---
+title: "97_stat_Kosten"
+author: "tlm"
+date: "2023-08-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(psych)
+library(dlookr)
+library(table1)
+library(janitor)
+library(openxlsx)
+library(readxl)
+```
+
+
+```{r data_load}
+load("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022/plart06.rda")
+load("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022/kh11.Rda")
+load('O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/02_rdata/2022/data11_neu.Rda')
+data1 <- data11_neu
+
+# verweildauer_zg3_TG <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2022.xlsx",3)  
+# verweildauer_pg_TG_tod <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/03_Ergebnisse/13_KH_Verweildauer2022.xlsx",9) 
+# 
+# hilfsdatei_SGB11 <- read_excel("O:/U5279/Routinedaten/Abschlussdatenlieferung_neu_202302/Daten/hilfsdatei_SGB11.xlsx")
+# verweildauer_pg_TG_tod$V_ALTER <- as.integer(verweildauer_pg_TG_tod$V_ALTER)
+```
+
+
+```{r}
+plart_stat <- plart06 %>% 
+  filter(PL_LEISTUNGSART == '05') %>% 
+  arrange(V_ID, PL_RENR)
+
+# Kosten anteilig berechnen (über Rechnung gemittelt)
+plart_stat<- plart_stat %>% 
+  group_by(V_ID, PL_RENR, PL_LEISTUNGSART) %>% 
+  mutate(kontakte = n(),
+         Kosten_kontakt_ges_netto = RE_ZAHLBETRAG / kontakte,
+         Kosten_kontakt_ges_brutto = RE_BRUTTO / kontakte, 
+         SUM_PL_GesKosten_netto = sum(Kosten_kontakt_ges_netto),
+         SUM_PL_GesKosten_brutto = sum(Kosten_kontakt_ges_brutto)) 
+
+
+hist(plart_stat$SUM_PL_GesKosten_netto, xlim = range(-1000:3000), breaks=20000)
+hist(plart_stat$SUM_PL_GesKosten_brutto, xlim = range(-1000:3000), breaks=20000)
+
+tmp <- plart_stat %>% group_by(SUM_PL_GesKosten_netto) %>% summarize(freq=n())
+tmp <- plart_stat %>% group_by(SUM_PL_GesKosten_brutto) %>% summarize(freq=n())
+```
+
+
+
+
